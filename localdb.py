@@ -6,8 +6,8 @@ class localdb:
 	baseDataDir = 'data/'
 	dbfilename = 'statistics.shelve'
 
-	def __init__ (self, dbfilename)
-	self.dbfilename = dbfilename
+	def __init__ (self, dbfilename):
+		self.dbfilename = dbfilename
 
 
 #	@abc.abstractmethod

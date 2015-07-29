@@ -1,7 +1,7 @@
 import abc
-import datamanager
-reload(datamanager)
-from datamanager import datamanager
+import localdb
+reload(localdb)
+from localdb import localdb
 
 import shelve
 import sys
@@ -16,7 +16,7 @@ from pytz import utc
 
 
 
-class bdmanager(datamanager):
+class bdmanager:
 
 	timeBDFormat = "%Y-%m-%dT%H:%M:%S+00:00"
 	srcUrlBase = 'http://bd-datas1.ucsd.edu/admin/api/sensors'
@@ -81,9 +81,3 @@ class bdmanager(datamanager):
 		return pd.DataFrame(d)
 
 			
-		
-
-datamanager.register(datamanager)
-
-print('Sublcass:', issubclass(bdmanager, datamanager))
-print('instance:', isinstance(bdmanager(), datamanager))
