@@ -4,7 +4,8 @@ import shelve
 class localdb:
 	__metaclass__ = abc.ABCMeta
 	baseDataDir = 'data/'
-	dbfilename = 'statistics.shelve'
+#	dbfilename = 'genieraws.shelve'
+	dbfilename = None
 
 	def __init__ (self, dbfilename):
 		self.dbfilename = dbfilename
@@ -27,6 +28,17 @@ class localdb:
 		reader = shelve.open(self.baseDataDir+self.dbfilename)
 		del reader[name]
 		reader.close()
+	
+	def check(self, name):
+		reader = shelve.open(self.baseDataDir+self.dbfilename)
+		checkVal = name in reader
+		reader.close()
+		return checkVal
+
+	def keys(self, name):
+		reader = shelve.open(self.baseDataDir+self.dbfilename)
+		returnKeys = reader.keys()
+		return returnKeys
 	
 	#@abc.abstractmethod
 	#Is this necessary for both of Log and BD?

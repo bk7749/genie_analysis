@@ -13,14 +13,15 @@ import pandas as pd
 from collections import defaultdict
 from pytz import timezone
 from pytz import utc
+import authdata
 
 
 
 class bdmanager:
 
 	timeBDFormat = "%Y-%m-%dT%H:%M:%S+00:00"
-	srcUrlBase = 'http://bd-datas1.ucsd.edu/admin/api/sensors'
-	srcUrlOptions = ('jbkoh@eng.ucsd.edu', '6f9dfee6-3705-4b98-93c2-597716a6dcf0')
+	srcUrlBase = authdata.srcUrlBase
+	srcUrlOptions = authdata.srcUrlOptions
 
 #
 #	def store(self):
@@ -35,6 +36,11 @@ class bdmanager:
 		tpUTC = utc.normalize(tp)
 		return tpUTC
 
+	def utc2pst(self, tp):
+		pst = timezone('US/Pacific')
+		utctz = timezone("UTC")
+		return tp.replace(tzinfo=utctz).astimezone(pst)
+
 	# template (str), sensorpoint type (str), zone number (str), beginTime (datetime), endTime (datetime) -> raw ts data (list of dict)
 	def download_raw(self, template, sensorpoint, zone, beginTime, endTime):
 		beginTimeUTCstr = datetime.strftime(self.pst2utc(beginTime), self.timeBDFormat)
@@ -42,7 +48,7 @@ class bdmanager:
 		
 		payload = {'context': '{"room":"' + 'rm-'+ zone + '", "template":"'+template+'"}'}
 		resp = requests.get(self.srcUrlBase, params=payload, auth=self.srcUrlOptions, timeout=10)
-		#ts = pd.Series()
+		#ts = pd.
 		if resp.status_code ==200:
 			resp = resp.json()
 			sensors = resp['sensors']
@@ -60,24 +66,26 @@ class bdmanager:
 					print( "<p>Error: %s</p>" % e )
 					traceback.print_exc()
 			else:
-				print("No sensor found at "+room)
+				print("No sensor found at "+zone)
 		else:
 			print("bad request: ", resp)
 		
-		return None
+		return list() # return zero-length dummy list if there is no data
 
 	def download_dataframe(self, template, sensorpoint, zone, beginTime, endTime):
-		return self.raw2pdts(self.download_raw(template, sensorpoint, zone, beginTime, endTime))
+		return self.raw2pddf(self.download_raw(template, sensorpoint, zone, beginTime, endTime))
 	
 	# rawts (list of dict) -> processed ts (pdts)
+	# timestamp is datetime
 	def raw2pddf(self, rawdata):
 		keys = list()
 		vals = list()
 		for idx, element in enumerate(rawdata):
 			onets = element.items()[0]
-			keys.append(onets[0])
+			timestamp = onets[0]
+			timestamp = datetime.strptime(timestamp,self.timeBDFormat)
+			timestamp = self.utc2pst(timestamp)
+			keys.append(timestamp)
 			vals.append(onets[1])
 		d = {'timestamp': keys, 'value':vals}
 		return pd.DataFrame(d)
-
-			
