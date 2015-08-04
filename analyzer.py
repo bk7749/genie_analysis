@@ -256,8 +256,6 @@ class analyzer():
 		actuateEnergyData = list()
 		for zone in actuateData.keys():
 			print zone
-			if zone!='3127':
-				continue
 			zoneActuate = actuateData[zone]
 #			for tp in zoneActuate:
 			for i in range(0,len(zoneActuate)):
@@ -394,7 +392,6 @@ class analyzer():
 	def proc_genie_setdev(self, forceFlag):
 		db = self.genieprocdb
 		rawdb = self.genierawdb
-
 		if not self.proceedCheck(db,'setpoint_dev_zone', forceFlag) and not self.proceedCheck(db, 'setpoint_dev_hour', forceFlag) and not self.proceedCheck(db,'setpoint_dev_month'):
 			return None
 
@@ -444,7 +441,6 @@ class analyzer():
 		self.thermprocdb.store('setpoint_dev_hour', wcadDevHour)
 		self.thermprocdb.store('setpoint_dev_month', wcadDevMonth)
 
-	
 	def proc_energy(self, forceFlag, genieFlag):
 		if genieFlag:
 			db = self.genieprocdb
@@ -491,8 +487,6 @@ class analyzer():
 		db.store('energy_save_zone', energySaveZone)
 		db.store('energy_waste_month', energyWasteMonth)
 		db.store('energy_waste_zone', energyWasteZone)
-
-	
 
 # Processing Wrapper: process stored raw data for grap
 # Necessary processing:
@@ -732,4 +726,3 @@ class analyzer():
 		self.plot_calendar_sample()
 # 5)
 		self.plot_actuate_setpnt_ts()
-
