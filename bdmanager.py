@@ -89,3 +89,6 @@ class bdmanager:
 			vals.append(onets[1])
 		d = {'timestamp': keys, 'value':vals}
 		return pd.DataFrame(d)
+
+	def twolist2pddf(self, keys, vals):
+		return pd.DataFrame({'timestamp':keys, 'value':vals})

@@ -5,11 +5,17 @@ from localdb import localdb
 
 import sys
 import traceback
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import pandas as pd
 import csv
 from datetime import datetime, timedelta
 import numpy as np
+import operator
+import matplotlib
+import matplotlib.colors as col
+import matplotlib.cm as cm
+from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
 
 class analyzer():
 	bdm = None
@@ -21,6 +27,7 @@ class analyzer():
 	thermprocdb = None
 	beginTime = datetime(2013,12,01,0,0,0)
 	endTime = datetime(2015,8,1,0,0,0)
+	figdir = 'figs/'
 	
 	confrooms = ['2109','2217','3109','3217','4109','4217']
 	normrooms = ['2150']
@@ -28,8 +35,8 @@ class analyzer():
 	def __init__ (self):
 		self.bdm = bdmanager()
 		self.zonelist = self.csv2list('metadata\partial_zonelist.csv')
-		#self.zonelist = self.csv2list('metadata\zonelist.csv')
 		self.geniezonelist = self.csv2list('metadata\partial_geniezonelist.csv')
+		#self.zonelist = self.csv2list('metadata\zonelist.csv')
 		#self.geniezonelist = self.csv2list('metadata\geniezonelist.csv')
 		self.genierawdb = localdb('genieraws.shelve')
 		self.thermrawdb = localdb('thermraws.shelve')
@@ -57,7 +64,7 @@ class analyzer():
 				pass
 			return True
 
-	def collect_genie_actuate_per_zone(self, forceFlag):
+	def collect_genie_actuate_per_zone_deprecated(self, forceFlag):
 		if not self.proceedCheck(self.genierawdb,'actuate_per_zone', forceFlag):
 			return None
 
@@ -65,10 +72,34 @@ class analyzer():
 		sensorpoint = 'Actuate'
 		genieActuateData = dict()
 		for zone in self.geniezonelist:
+			print zone
 			rawzone = self.bdm.download_dataframe(template, sensorpoint, zone, self.beginTime, self.endTime)
+			if len(rawzone)<=0:
+				continue
 			processedzone = self.diff_list(rawzone, False, True, 0.1)
 			genieActuateData[zone] = rawzone
 		self.genierawdb.store('actuate_per_zone', genieActuateData)
+
+	def collect_genie_actuate_per_zone(self, forceFlag):
+		if not self.proceedCheck(self.genierawdb,'actuate_per_zone', forceFlag):
+			return None
+		genieActuateData = dict()
+		template = 'Genie HVAC Control'
+		sensorpoint = 'off-time'
+		for zone in self.geniezonelist:
+			offtime = self.bdm.download_dataframe(template, sensorpoint, zone, self.beginTime, self.endTime)
+			if len(offtime)<=0:
+				continue
+			newofftimeTime = list()
+			newofftimeVal = list()
+			for i, value in enumerate(offtime['value']):
+				if value != None:
+					newofftimeTime.append(offtime['timestamp'][i])
+					newofftimeVal.append(3)
+			newofftime = self.bdm.twolist2pddf(newofftimeTime, newofftimeVal)
+			genieActuateData[zone] = newofftime
+		self.genierawdb.store('actuate_per_zone', genieActuateData)
+
 
 	def diff_list(self, data, descendFlag, ascendFlag, threshold):
 		prevDatum = data['value'][0]
@@ -82,6 +113,7 @@ class analyzer():
 				( (not descendFlag and not ascendFlag) and (datum > prevDatum + threshold or datum < prevDatum - threshold) ):
 				tsList.append(ts)
 				diffList.append(datum)
+			prevDatum = datum
 		d = {'timestamp': tsList, 'value':diffList}
 		return pd.DataFrame(d)
 			
@@ -139,6 +171,8 @@ class analyzer():
 				print("No temp occ sts at: ", zone)
 				acs = self.bdm.download_dataframe('Actual Cooling Setpoint', 'PresentValue', zone, self.beginTime, self.endTime)
 				oc = self.bdm.download_dataframe('Occupied Command', 'PresentValue', zone, self.beginTime, self.endTime)
+				if len(acs)<=0 or len(oc)<=0:
+					continue
 				actuate = self.calc_therm_actuate(acs,oc)
 			else:
 				actuate = self.diff_list(actuate,False,True, 0.1)
@@ -155,10 +189,12 @@ class analyzer():
 		genieSetpointData = dict()
 		for zone in self.geniezonelist:
 			rawZoneSetpoint = self.bdm.download_dataframe(template, sensorpoint, zone, self.beginTime, self.endTime)
+			if len(rawZoneSetpoint)<=0:
+				continue
 			genieSetpointData[zone] = rawZoneSetpoint
 		self.genierawdb.store('setpoint_per_zone', genieSetpointData)
 		
-	def collect_therm_setpoint_per_zone(self, forceFlag):
+	def collect_therm_wcad_per_zone(self, forceFlag):
 		if not self.proceedCheck(self.thermrawdb,'setpoint_per_zone', forceFlag):
 			return None
 
@@ -172,7 +208,7 @@ class analyzer():
 				continue
 			wcad = self.diff_list(wcad, False, False, 0.5)
 			wcadData[zone] = wcad
-		self.thermrawdb.store('setpoint_per_zone', wcadData)
+		self.thermrawdb.store('wcad_per_zone', wcadData)
 		
 	def calc_energy(self, ts):
 		totalEnergy = 0
@@ -220,7 +256,7 @@ class analyzer():
 		actuateEnergyData = list()
 		for zone in actuateData.keys():
 			print zone
-			if zone!='4223':
+			if zone!='3127':
 				continue
 			zoneActuate = actuateData[zone]
 #			for tp in zoneActuate:
@@ -232,7 +268,11 @@ class analyzer():
 				actuateEnergyData.append(energyDiff)
 		db.store('actuate_energy', actuateEnergyData)
 
-		setpointData = db.load('setpoint_per_zone')
+		if genieFlag:
+			setpointData = db.load('setpoint_per_zone')
+		else:
+			setpointData = db.load('wcad_per_zone')
+
 		setpointEnergyData = list()
 		for zone in setpointData.keys():
 			print zone
@@ -275,8 +315,6 @@ class analyzer():
 			middleIndex = len(tempData)/2
 			return tempData['value'][middleIndex]
 
-		
-
 	def collect_temp_vs_setpnt(self, forceFlag, genieFlag):
 		if genieFlag:
 			db = self.genierawdb
@@ -287,7 +325,10 @@ class analyzer():
 			return None
 
 		tempdict = list()
-		zoneSetpoints= db.load('setpoint_per_zone')
+		if genieFlag: 
+			zoneSetpoints = db.load('setpoint_per_zone')
+		else:
+			zoneSetpoints = db.load('wcad_per_zone')
 		for zone in zoneSetpoints.keys():
 			print zone
 			setpointList = zoneSetpoints[zone]
@@ -298,7 +339,10 @@ class analyzer():
 				if currTemp == None:
 					continue
 				tempdict.append({currTemp:setpoint})
-		db.store('temp_vs_setpnt', tempdict)
+		if genieFlag:
+			db.store('temp_vs_setpnt', tempdict)
+		else:
+			db.store('temp_vs_wcad', tempdict)
 
 # Download Wrapper: Download and store raw data 
 # Necessary data: 
@@ -321,14 +365,14 @@ class analyzer():
 		print("1-2 Complete")
 
 #	2) Occupance history per zone (for several zones) 
-#		self.collect_occ_samples(True)
+		#self.collect_occ_samples(True)
 		print("2 Complete")
 
 #	3-1) Setpoint per zone temperature
-#		self.collect_genie_setpoint_per_zone(True)
+		#self.collect_genie_setpoint_per_zone(True)
 		print("3-1 Complete")
 #	3-2) Warm-Cool Adjust per zone temperature
-		#self.collect_therm_setpoint_per_zone(True)
+		#self.collect_therm_wcad_per_zone(True)
 		print("3-2 Complete")
 
 #	4-1) Genie Energy consumption history per zone
@@ -347,13 +391,9 @@ class analyzer():
 
 
 	
-	def proc_setdev(self, forceFlag, genieFlag):
-		if genieFlag:
-			db = self.genieprocdb
-			rawdb = self.genierawdb
-		else:
-			db = self.thermprocdb
-			rawdb = self.thermrawdb
+	def proc_genie_setdev(self, forceFlag):
+		db = self.genieprocdb
+		rawdb = self.genierawdb
 
 		if not self.proceedCheck(db,'setpoint_dev_zone', forceFlag) and not self.proceedCheck(db, 'setpoint_dev_hour', forceFlag) and not self.proceedCheck(db,'setpoint_dev_month'):
 			return None
@@ -374,7 +414,7 @@ class analyzer():
 				continue
 			setpntList = setpoints[zone]
 			for i in range(0,len(setpntList)):
-				setdiff = float(commonsetpnt) - float(setpntList['value'][i])
+				setdiff = float(setpntList['value'][i]) - float(commonsetpnt) 
 				tp = setpntList['timestamp'][i]
 				setpntdevZone[zone].append(setdiff)
 				setpntdevHour[tp.hour].append(setdiff)
@@ -384,6 +424,27 @@ class analyzer():
 		db.store('setpoint_dev_hour', setpntdevHour)
 		db.store('setpoint_dev_month', setpntdevMonth)
 	
+	def proc_therm_setdev(self, forceFlag):
+		if not self.proceedCheck(self.thermprocdb, 'wcad_dev_zone', forceFlag) and not self.proceedCheck(self.thermprocdb, 'setpoint_dev_hour', forceFlag) and not self.proceedCheck(self.thermprocdb, 'setpoint_dev_mont'):
+			return None
+		wcads = self.thermrawdb.load('wcad_per_zone')
+		wcadDevZone = defaultdict(list)
+		wcadDevMonth = defaultdict(list)
+		wcadDevHour = defaultdict(list)
+		for zone in wcads.keys():
+			wcadList = wcads[zone]
+			for i in range(0,len(wcadList)):
+				tp = wcadList['timestamp'][i]
+				wcad = wcadList['value'][i]
+				wcadDevZone[zone].append(wcad)
+				wcadDevHour[tp.hour].append(wcad)
+				wcadDevMonth[(tp.year-2013)*12+tp.month].append(wcad)
+
+		self.thermprocdb.store('setpoint_dev_zone', wcadDevZone)
+		self.thermprocdb.store('setpoint_dev_hour', wcadDevHour)
+		self.thermprocdb.store('setpoint_dev_month', wcadDevMonth)
+
+	
 	def proc_energy(self, forceFlag, genieFlag):
 		if genieFlag:
 			db = self.genieprocdb
@@ -392,32 +453,44 @@ class analyzer():
 			db = self.thermprocdb
 			rawdb = self.thermrawdb
 
-		if not self.proceedCheck(db,'energy_diff_month', forceFlag) and not self.proceedCheck(db, 'energy_diff_zone', foceFlag):
+		if not self.proceedCheck(db,'energy_save_month', forceFlag) and not self.proceedCheck(db, 'energy_save_zone', foceFlag) and not self.proceedCheck(db,'energy_waste_month', forceFlag) and not self.proceedCheck(db, 'energy_waste_zone', foceFlag):
 			return None
 
 		actuateEnergy = rawdb.load('actuate_energy')
 		setpntEnergy= rawdb.load('setpoint_energy')
-		setpntEnergyMonth = defaultdict(list)
-		setpntEnergyZone = defaultdict(list)
-		actuateEnergyMonth = defaultdict(list)
-		actuateEnergyZone = defaultdict(list)
+		energySaveMonth= defaultdict(float)
+		energySaveZone = defaultdict(float)
+		energyWasteMonth = defaultdict(float)
+		energyWasteZone = defaultdict(float)
 
-		for row in actuateEnergy:
+		for row in actuateEnergy+setpntEnergy:
 			zone = row[0]
 			tp = row[1]
 			beforeEnergy = row[2]
 			afterEnergy = row[2]
+			if afterEnergy>beforeEnergy:
+				energyWasteMonth[(tp.year-2013)*12+tp.month] += afterEnergy - beforeEnergy
+				energyWasteZone[zone] += afterEnergy - beforeEnergy
+			else:
+				energySaveMonth[(tp.year-2013)*12+tp.month] -= afterEnergy - beforeEnergy
+				energySaveZone[zone] -= afterEnergy - beforeEnergy
 		
-		for row in setpntEnergy:
-			zone = row[0]
-			tp = row[1]
-			beforeEnergy = row[2]
-			afterEnergy = row[2]
+#		for row in setpntEnergy:
+#			zone = row[0]
+#			tp = row[1]
+#			beforeEnergy = row[2]
+#			afterEnergy = row[2]
+#			if afterEnergy>beforeEnergy:
+#				energyWasteMonth[(tp.year-2013)*12+tp.month] += afterEnergy - beforeEnergy
+#				energyWasteZone[zone] += afterEnergy - beforeEnergy
+#			else:
+#				energySaveMonth[(tp.year-2013)*12+tp.month] -= afterEnergy - beforeEnergy
+#				energySaveZone[zone] -= afterEnergy - beforeEnergy
 
-		db.store('setpnt_energy_diff_month', setpntEnergyMonth)
-		db.store('setpnt_energy_diff_zone', setpntEnergyZone)
-		db.store('actuate_energy_diff_month', actuateEnergyMonth)
-		db.store('actuate_energy_diff_zone', actuateEnergyZone)
+		db.store('energy_save_month', energySaveMonth)
+		db.store('energy_save_zone', energySaveZone)
+		db.store('energy_waste_month', energyWasteMonth)
+		db.store('energy_waste_zone', energyWasteZone)
 
 	
 
@@ -431,19 +504,232 @@ class analyzer():
 		GenieFlag = True
 		ThermFlag = False
 		#1-1
-		self.proc_setdev(True, GenieFlag)
+		self.proc_genie_setdev(True)
 		#1-2
-		self.proc_setdev(True, ThermFlag)
+		self.proc_therm_setdev(True)
 
 		#2-1
 		self.proc_energy(True, GenieFlag)
 		#2-2
 		self.proc_energy(True, ThermFlag)
 
+	def plot_setpnt_dev_assist(self, setpntDev, sortedFlag):
+		avgs = dict()
+		stds = dict()
+		for key in setpntDev.iterkeys():
+			avgs[key] = np.mean(setpntDev[key])
+			stds[key] = np.std(setpntDev[key])
+
+		sortedAvgs = dict(zip(setpntDev.keys(), avgs.values()))
+		sortedStds = list()
+		if sortedFlag:
+			sortedAvgs = OrderedDict(sorted(sortedAvgs.items(), key=operator.itemgetter(1)))
+			for key in sortedAvgs.iterkeys():
+				sortedStds.append(stds[key])
+		else:
+			for key in sortedAvgs.iterkeys():
+				sortedStds.append(stds[key])
+		
+		fig = plt.figure(figsize=(4,2))
+		plt.bar(range(0,len(sortedAvgs)), sortedAvgs.values(), yerr=sortedStds)
+		plt.ylabel(u'Temperature \ndifference ($^\circ$F)', labelpad=-2)
+		plt.tight_layout()
+		plt.show()
+		return fig
+
+	def save_fig(self, fig, name):
+		pp = PdfPages(self.figdir+name+'.pdf')
+		pp.savefig(fig, bbox_inches='tight')
+		pp.close()
+
 	def plot_setpnt_dev(self):
-		pass
+		genie_setpnt_dev_zone = self.genieprocdb.load('setpoint_dev_zone')
+		genie_setpnt_dev_hour = self.genieprocdb.load('setpoint_dev_hour')
+		genie_setpnt_dev_month = self.genieprocdb.load('setpoint_dev_month')
+		therm_setpnt_dev_zone = self.thermprocdb.load('setpoint_dev_zone')
+		therm_setpnt_dev_hour = self.thermprocdb.load('setpoint_dev_hour')
+		therm_setpnt_dev_month = self.thermprocdb.load('setpoint_dev_month')
+	
+		fig1 = self.plot_setpnt_dev_assist(genie_setpnt_dev_zone, True)
+		fig2 = self.plot_setpnt_dev_assist(genie_setpnt_dev_hour, False)
+		fig3 = self.plot_setpnt_dev_assist(genie_setpnt_dev_month, False)
+		fig4 = self.plot_setpnt_dev_assist(therm_setpnt_dev_zone, True)
+		fig5 = self.plot_setpnt_dev_assist(therm_setpnt_dev_hour, False)
+		fig6 = self.plot_setpnt_dev_assist(therm_setpnt_dev_month, False)
+		
+		self.save_fig(fig1, 'spt_dev_genie_zone')
+		self.save_fig(fig2, 'spt_dev_genie_hour')
+		self.save_fig(fig3, 'spt_dev_genie_month')
+		self.save_fig(fig4, 'spt_dev_therm_zone')
+		self.save_fig(fig5, 'spt_dev_therm_hour')
+		self.save_fig(fig6, 'spt_dev_therm_month')
+	
+	def plot_temp_vs_setpnt(self, genieFlag):
+		if genieFlag:
+			tempDict= self.genierawdb.load('temp_vs_setpnt')
+			filename = 'genie_temp_vs_setpnt'
+		else:
+			tempDict= self.thermrawdb.load('temp_vs_wcad')
+			filename = 'therm_temp_vs_setpnt'
+		xmin = 65
+		xmax = 80
+		ymin = -6
+		ymax = 6
+		xgran = 0.5
+		ygran = 0.5
+		xnum = int((xmax-xmin)/xgran)
+		ynum = int((ymax-ymin)/ygran)
+		tmap = np.ndarray([ynum,xnum], offset=0)
+		#init tmap
+		for i in range(0,xnum):
+			for j in range(0, ynum):
+				tmap[j,i] = 0
+
+		# Calc tmap
+		prevSetpnt = np.float64(tempDict[0].values()[0])
+		for tempObj in tempDict:
+			currTemp = tempObj.keys()[0]
+			if currTemp > xmax:
+				continue
+			elif currTemp < xmin:
+				continue
+			x = int((xmax-currTemp)/xgran)-1
+			setpnt = np.float64(tempObj.values()[0])
+			setpntDiff = setpnt - prevSetpnt
+			if setpntDiff > ymax:
+					continue
+			elif setpntDiff < ymin:
+				continue
+			y = int((ymax-setpntDiff)/ygran) - 1
+			tmap[x,y] += 1
+			prevSetpnt = setpnt
+
+		# Actual Plotting
+		fig = plt.figure(figsize=(4,2))
+		plt.pcolor(tmap, cmap=cm.Blues)
+		xlabels = ['65', '67.5', '70', '72.5', '75', '77.5', '80']
+		ylabels = ['-6', '-4','-2','0','2','4','6']
+		plt.xticks(np.arange(0,31,5), xlabels, fontsize=10)
+		plt.yticks(np.arange(0,13,2), ylabels, fontsize=10)
+		cbar = plt.colorbar()
+		cbar.set_label("Count (Number)", labelpad=-0.1)
+		plt.xlabel(u'Zone temperature ($^\circ$F)', labelpad=-1.5)
+		plt.ylabel(u'Temperature \nsetpoint ($^\circ$F)', labelpad=-2)
+		plt.tight_layout()
+		plt.show()
+			
+		self.save_fig(fig, filename)
+		return fig
+	
+	def plot_energy_diff_assist(self, energySave, energyWaste):
+		x = range(0,len(energySave))
+		fig = plt.figure(figsize=(4,2))
+		plt.bar(x, energySave.values())
+		plt.bar(x, -np.array(energyWaste.values()), top=0)
+		plt.ylabel(u'Energy (Wh)', labelpad=-2)
+		plt.tight_layout()
+		plt.show()
+		return fig
+
+	def plot_energy_diff(self, genieFlag):
+		if genieFlag:
+			db = self.genieprocdb
+		else:
+			db = self.thermprocdb
+		energySaveMonth= db.load('energy_save_month')
+		energySaveZone= db.load('energy_save_zone')
+		energyWasteMonth= db.load('energy_waste_month')
+		energyWasteZone= db.load('energy_waste_zone')
+
+		figMonth = self.plot_energy_diff_assist(energySaveMonth, energyWasteMonth)
+		figZone = self.plot_energy_diff_assist(energySAveZone, energyWasteZone)
+
+		if genieFlag:
+			self.save_fig(figMonth, 'genie_energy_diff_month')
+			self.save_fig(figZone, 'genie_energy_diff_zone')
+		else:
+			self.save_fig(figMonth, 'therm_energy_diff_month')
+			self.save_fig(figZone, 'therm_energy_diff_zone')
+
+	def plot_calendar_sample(self):
+		occSamples = self.genierawdb.load('occ_samples')
+		beforeOcc = occSamples['2109'][0]
+		afterOcc = occSamples['2109'][1]
+
+		fig, axes = plt.subplots(nrows=2)
+		axes[0].set_ylim([0.9,3.1])
+		axes[1].set_ylim([0.9,3.1])
+		axes[0].plot_date(beforeOcc['timestamp'], beforeOcc['value'], linestyle='-',marker='None')
+		axes[1].plot_date(afterOcc['timestamp'], afterOcc['value'], linestyle='-',marker='None')
+		plt.show()
+		return fig
+
+	def plot_actuate_setpnt_ts_assist(self, genieFlag):
+		if genieFlag:
+			setpntDict = self.genierawdb.load('setpoint_per_zone')
+			actuateDict = self.genierawdb.load('actuate_per_zone')
+		else:
+			setpntDict = self.thermrawdb.load('wcad_per_zone')
+			actuateDict = self.thermrawdb.load('actuate_per_zone')
+
+		setpntTS = defaultdict(float)
+		actuateTS = defaultdict(float)
+
+		for setpnts in setpntDict.itervalues():
+			for setpnt in setpnts.iterrows():
+				setpnt = setpnt[1]
+				tp = setpnt['timestamp']
+				setpntTS[(tp.year-2013)*12+tp.month] += 1
+		for actuates in actuateDict.itervalues():
+			for actuate in actuates.iterrows():
+				actuate = actuate[1]
+				tp = setpnt['timestamp']
+				actuateTS[(tp.year-2013)*12+tp.month] += 1
+
+		return setpntTS, actuateTS
+
+		
+	def plot_actuate_setpnt_ts(self):
+		GenieFlag = True
+		ThermFlag = False
+		genieSetpnt, genieActuate = self.plot_actuate_setpnt_ts_assist(GenieFlag)
+		thermSetpnt, thermActuate = self.plot_actuate_setpnt_ts_assist(ThermFlag)
+
+		x =np.arange(0,len(genieSetpnt))
+
+		fig = plt.figure(figsize=(4,2))
+		p1 = plt.bar(x-0.1, np.array(genieSetpnt.values()), width=0.2, align='center')
+		p2 = plt.bar(x-0.1, np.array(genieSetpnt.values()), bottom=np.array(genieSetpnt.values()), width=0.2, align='center')
+		p3 = plt.bar(x-0.1, np.array(thermSetpnt.values()), width=0.2, align='center')
+		p4 = plt.bar(x-0.1, np.array(thermSetpnt.values()), bottom=np.array(thermSetpnt.values()), width=0.2, align='center')
+
+		plt.show()
+		self.save_fig(fig, 'utilization_actu_setpnt')
+		return fig
+
+
 
 # Plotting Wrapper
 # 	1)	setpoint_dev
+#	2) 	Zone Temperature vs Setpoint Diff
+#	3)	Energy Diff over Zone, Hour, Month
+#	4)	Calendar sample
+#	5)	Actuate and temperature over Time(month)
+#	6)	
+
 	def plot_all_data(self):
-		self.plot_setpnt_dev()
+		GenieFlag = True
+		ThermFlag = True
+# 1)
+		#self.plot_setpnt_dev()
+# 2)
+		#self.plot_temp_vs_setpnt(GenieFlag)
+		#self.plot_temp_vs_setpnt(ThermFlag) #TODO: All of them are positive
+# 3)
+		#self.plot_energy_diff(GenieFlag)
+		#self.plot_energy_diff(ThermFlag)
+# 4)
+		self.plot_calendar_sample()
+# 5)
+		self.plot_actuate_setpnt_ts()
+
