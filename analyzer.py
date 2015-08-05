@@ -4,10 +4,10 @@ from bdmanager import bdmanager
 from localdb import localdb
 
 import sys
+import csv
 import traceback
 from collections import defaultdict, OrderedDict
 import pandas as pd
-import csv
 from datetime import datetime, timedelta
 import numpy as np
 import operator
@@ -33,6 +33,7 @@ class analyzer():
 	normrooms = ['2150']
 	
 	def __init__ (self):
+		print "hello3"
 		self.bdm = bdmanager()
 		self.zonelist = self.csv2list('metadata\partial_zonelist.csv')
 		self.geniezonelist = self.csv2list('metadata\partial_geniezonelist.csv')

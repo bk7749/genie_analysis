@@ -43,10 +43,16 @@ class bdmanager:
 
 	# template (str), sensorpoint type (str), zone number (str), beginTime (datetime), endTime (datetime) -> raw ts data (list of dict)
 	def download_raw(self, template, sensorpoint, zone, beginTime, endTime):
-		beginTimeUTCstr = datetime.strftime(self.pst2utc(beginTime), self.timeBDFormat)
-		endTimeUTCstr = datetime.strftime(self.pst2utc(endTime), self.timeBDFormat)
+		#beginTimeUTCstr = datetime.strftime(self.pst2utc(beginTime), self.timeBDFormat)
+		#endTimeUTCstr = datetime.strftime(self.pst2utc(endTime), self.timeBDFormat)
+		beginTimeUTC = self.pst2utc(beginTime)
+		endTimeUTC = self.pst2utc(endTime)
+		beginTimeUTCstr = beginTimeUTC.isoformat()
+		endTimeUTCstr = beginTimeUTC.isoformat()
 		
-		payload = {'context': '{"room":"' + 'rm-'+ zone + '", "template":"'+template+'"}'}
+#		payload = {'context': '{"room":"' + 'rm-'+ zone + '", "template":"'+template+'"}'}
+		payloadDict = {'context': {"room": 'rm-'+ zone , "template": template}}
+		payload = str(payloadDict)
 		resp = requests.get(self.srcUrlBase, params=payload, auth=self.srcUrlOptions, timeout=10)
 		#ts = pd.
 		if resp.status_code ==200:
@@ -77,18 +83,28 @@ class bdmanager:
 	
 	# rawts (list of dict) -> processed ts (pdts)
 	# timestamp is datetime
-	def raw2pddf(self, rawdata):
+	def raw2pddf_deprecated(self, rawdata):
 		keys = list()
 		vals = list()
 		for idx, element in enumerate(rawdata):
 			onets = element.items()[0]
 			timestamp = onets[0]
 			timestamp = datetime.strptime(timestamp,self.timeBDFormat)
-			timestamp = self.utc2pst(timestamp)
+		#	timestamp = self.utc2pst(timestamp)
+			timestamp = tp.replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific'))
 			keys.append(timestamp)
 			vals.append(onets[1])
 		d = {'timestamp': keys, 'value':vals}
 		return pd.DataFrame(d)
+
+	# rawdata (list of dict) -> data sorted by key (dataframe)
+	# keys (timestamp(datetime)) should be unique.
+	def raw2pddf(self, rawData):
+		rawData = dict([(key,d[key]) for d in rawData for key in d])
+		sortedData = OrderedDict(sorted(rawData.items(), key=operator.itemgetter(1)))
+		dfData = pd.DataFrame({'timestamp':sortedData.keys(),'value':sortedData.values()})
+		g = lambda tp:dateutil.parser.parse(tp).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific'))
+		dfData['timestamp'] = dfData['timestamp'].apply(g)
 
 	def twolist2pddf(self, keys, vals):
 		return pd.DataFrame({'timestamp':keys, 'value':vals})
