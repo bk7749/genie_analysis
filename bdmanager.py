@@ -2,6 +2,7 @@ import abc
 import localdb
 reload(localdb)
 from localdb import localdb
+import authdata
 
 import shelve
 import sys
@@ -10,10 +11,12 @@ import traceback
 import re
 from datetime import datetime, timedelta
 import pandas as pd
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from pytz import timezone
 from pytz import utc
-import authdata
+import operator
+import dateutil
+
 
 
 
@@ -48,11 +51,11 @@ class bdmanager:
 		beginTimeUTC = self.pst2utc(beginTime)
 		endTimeUTC = self.pst2utc(endTime)
 		beginTimeUTCstr = beginTimeUTC.isoformat()
-		endTimeUTCstr = beginTimeUTC.isoformat()
+		endTimeUTCstr = endTimeUTC.isoformat()
 		
-#		payload = {'context': '{"room":"' + 'rm-'+ zone + '", "template":"'+template+'"}'}
-		payloadDict = {'context': {"room": 'rm-'+ zone , "template": template}}
-		payload = str(payloadDict)
+		payload = {'context': '{"room":"' + 'rm-'+ zone + '", "template":"'+template+'"}'}
+		#payloadDict = {'context': {"room": 'rm-'+ zone , "template": template}}
+#		payload = str(payloadDict)
 		resp = requests.get(self.srcUrlBase, params=payload, auth=self.srcUrlOptions, timeout=10)
 		#ts = pd.
 		if resp.status_code ==200:
@@ -101,10 +104,11 @@ class bdmanager:
 	# keys (timestamp(datetime)) should be unique.
 	def raw2pddf(self, rawData):
 		rawData = dict([(key,d[key]) for d in rawData for key in d])
-		sortedData = OrderedDict(sorted(rawData.items(), key=operator.itemgetter(1)))
+		sortedData = OrderedDict(sorted(rawData.items(), key=operator.itemgetter(0)))
 		dfData = pd.DataFrame({'timestamp':sortedData.keys(),'value':sortedData.values()})
 		g = lambda tp:dateutil.parser.parse(tp).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific'))
 		dfData['timestamp'] = dfData['timestamp'].apply(g)
+		return dfData
 
 	def twolist2pddf(self, keys, vals):
 		return pd.DataFrame({'timestamp':keys, 'value':vals})
