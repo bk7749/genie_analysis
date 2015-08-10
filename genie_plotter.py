@@ -1,14 +1,18 @@
 import plotter
+reload(plotter)
 from localdb import localdb
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.colors as col
-from matplotlib.cm as cm
+import matplotlib.colors as col
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 import csv
 from datetime import datetime, timedelta
+from collections import OrderedDict, defaultdict
+import operator
 
-class genie_plotter(plotter):
+
+class genie_plotter:
 
 	genierawdb = None
 	thermrawdb = None
@@ -16,7 +20,7 @@ class genie_plotter(plotter):
 	thermprocdb = None
 	zonelist = None
 	geniezonelist = None
-	figdir = 'fig/'
+	figdir = 'figs/'
 	
 
 	def __init__(self):
@@ -55,7 +59,12 @@ class genie_plotter(plotter):
 			sortedStds.append(stds[key])
 		
 		ylabel = u'Temperature \ndifference ($^\circ$F)'
-		fig = plotter.multiple_stacked_bars(np.array(sortedAvgs.values()), figSizeIn=(4,2), xlabel, ylabel, 0)
+		plotData = list()
+		plotData.append(np.array(sortedAvgs.values()))
+		stdData = list()
+		stdData.append(np.array(sortedStds))
+		#fig = plotter.plot_multiple_stacked_bars(list().append(np.array(sortedAvgs.values())), (4,2), xlabel, ylabel, 0)
+		fig = plotter.plot_multiple_stacked_bars(plotData, stdData, (4,2), xlabel, ylabel, 0)
 		return fig
 
 	def plot_setpnt_dev(self):
@@ -66,12 +75,12 @@ class genie_plotter(plotter):
 		therm_setpnt_dev_hour = self.thermprocdb.load('setpoint_dev_hour')
 		therm_setpnt_dev_month = self.thermprocdb.load('setpoint_dev_month')
 		
-		fig1 = self.plot_setpnt_dev_assist(genie_setpnt_dev_zone, True)
-		fig2 = self.plot_setpnt_dev_assist(genie_setpnt_dev_hour, False)
-		fig3 = self.plot_setpnt_dev_assist(genie_setpnt_dev_month, False)
-		fig4 = self.plot_setpnt_dev_assist(therm_setpnt_dev_zone, True)
-		fig5 = self.plot_setpnt_dev_assist(therm_setpnt_dev_hour, False)
-		fig6 = self.plot_setpnt_dev_assist(therm_setpnt_dev_month, False)
+		fig1 = self.plot_setpnt_dev_assist(genie_setpnt_dev_zone, True, 'Zone')
+		fig2 = self.plot_setpnt_dev_assist(genie_setpnt_dev_hour, False, 'Time (Month)')
+		fig3 = self.plot_setpnt_dev_assist(genie_setpnt_dev_month, False, 'Hour')
+		fig4 = self.plot_setpnt_dev_assist(therm_setpnt_dev_zone, True, 'Zone')
+		fig5 = self.plot_setpnt_dev_assist(therm_setpnt_dev_hour, False, 'Time (Month)')
+		fig6 = self.plot_setpnt_dev_assist(therm_setpnt_dev_month, False, 'Hour')
 		
 		plotter.save_fig(fig1, self.figdir+'spt_dev_genie_zone.pdf')
 		plotter.save_fig(fig2, self.figdir+'spt_dev_genie_hour.pdf')
@@ -83,17 +92,34 @@ class genie_plotter(plotter):
 	def plot_temp_vs_setpnt(self, genieFlag):
 		if genieFlag:
 			tempDict= self.genierawdb.load('temp_vs_setpnt')
-			filename = 'genie_temp_vs_setpnt'
+			filename = 'genie_temp_vs_setpnt.pdf'
+			ymin = 65
+			ymax = 80
+			ygran = 0.5
+			ytickNum = 6
+			#ytickTag = ['-6', '-4','-2','0','2','4','6']
+			#ytickRange = np.arange(0,25,4)
+			ylabel = u'Temperature \nsetpoint ($^\circ$F)'
 		else:
 			tempDict= self.thermrawdb.load('temp_vs_wcad')
+			filename = 'therm_temp_vs_setpnt.pdf'
+			ymin = -6
+			ymax = 6
+			ygran = 0.5
+			ytickNum = 7
+#			ytickTag = ['-6', '-4','-2','0','2','4','6']
+#			ytickRange = np.arange(0,25,4)
+			ylabel = u'Warm Cool Adjust \n ($^\circ$F)'
 		xmin = 65
 		xmax = 80
-		ymin = -6
-		ymax = 6
 		xgran = 0.5
-		ygran = 0.5
 		xnum = int((xmax-xmin)/xgran)
 		ynum = int((ymax-ymin)/ygran)
+		ytickTag = list()
+		ytickRange = np.arange(0,ynum+1, int(ynum/(ytickNum-1)))
+		for i in range(0,ytickNum):
+			ytickTag.append(str(ymin+i*(ymax-ymin)/(ytickNum-1)))
+
 		tmap = np.ndarray([ynum,xnum], offset=0)
 		#init tmap
 		for i in range(0,xnum):
@@ -110,26 +136,27 @@ class genie_plotter(plotter):
 				continue
 			x = int((xmax-currTemp)/xgran)-1
 			setpnt = np.float64(tempObj.values()[0])
-			setpntDiff = setpnt - prevSetpnt
+#			setpntDiff = setpnt - prevSetpnt
+			setpntDiff = setpnt
 			if setpntDiff > ymax:
 					continue
 			elif setpntDiff < ymin:
 				continue
 			y = int((ymax-setpntDiff)/ygran) - 1
-			tmap[x,y] += 1
+			tmap[y,x] += 1
 			prevSetpnt = setpnt
 
 		# Actual Plotting
-		xlabels = ['65', '67.5', '70', '72.5', '75', '77.5', '80']
-		ylabels = ['-6', '-4','-2','0','2','4','6']
+		xtickTag = ['65', '67.5', '70', '72.5', '75', '77.5', '80']
 		cbarLabel = "Count (Number)"
 		xlabel = u'Zone temperature ($^\circ$F)'
-		ylabel = u'Temperature \nsetpoint ($^\circ$F)'
-		fig = plotter.plot_colormap(tmap, figSizeIn=(4,2), xlabel, ylabel, cbarLabel, cm.Blues)
-		plt.xticks(np.arange(0,31,5), xlabels, fontsize=10)
-		plt.yticks(np.arange(0,13,2), ylabels, fontsize=10)
+		xtickRange = np.arange(0,31,5)
+		fig = plotter.plot_colormap(tmap, (4,2), xlabel, ylabel, cbarLabel, cm.Blues, xtickRange, ytickRange, xtickTag, ytickTag)
+#		plt.xticks(np.arange(0,31,5), xticks, fontsize=10)
+#		plt.yticks(np.arange(0,13,2), yticks, fontsize=10)
+		plt.show()
 
-		plotter.save_fig(fig, self.figdir+'therm_temp_vs_setpnt.pdf')
+		plotter.save_fig(fig, self.figdir+filename)
 		return fig
 	
 	def plot_energy_diff(self, genieFlag):
@@ -145,12 +172,12 @@ class genie_plotter(plotter):
 		ylabel = u'Energy (Wh)'
 		xlabelMonth = 'Time (Month/Year)'
 		xlabelZone = 'Zone'
-		figMonth = plotter.plot_up_down_bars(energySaveMonth, energyWasteMonth, (4,2), xlabelMonth, ylabel)
-		figZone = plotter.plot_up_down_bars(energySaveZone, energyWasteZone, (4,2), xlabelZone, ylabel)
+		figMonth = plotter.plot_up_down_bars(np.array(energySaveMonth.values()), np.array(energyWasteMonth.values()), (4,2), xlabelMonth, ylabel)
+		figZone = plotter.plot_up_down_bars(np.array(energySaveZone.values()), np.array(energyWasteZone.values()), (4,2), xlabelZone, ylabel)
 
 		if genieFlag:
 			plotter.save_fig(figMonth, self.figdir+'genie_energy_diff_month.pdf')
-			plotter.save_fig(figZone, 'genie_energy_diff_zone.pdf')
+			plotter.save_fig(figZone, self.figdir+'genie_energy_diff_zone.pdf')
 		else:
 			plotter.save_fig(figMonth, self.figdir+'therm_energy_diff_month.pdf')
 			plotter.save_fig(figZone, self.figdir+'therm_energy_diff_zone.pdf')
@@ -169,14 +196,34 @@ class genie_plotter(plotter):
 		xlabel = 'Time'
 		ylabel = 'Occupied Command'
 
-		plotter.plot_multiple_timeseries(tsList, occList, xlabel
-		fig, axes = plt.subplots(nrows=2)
+		fig, axes = plotter.plot_multiple_timeseries(tsList, occList, xlabel, ylabel)
+		#fig, axes = plt.subplots(nrows=2)
 		axes[0].set_ylim([0.9,3.1])
 		axes[1].set_ylim([0.9,3.1])
 		plt.show()
 		
 		plotter.save_fig(fig, self.figdir+'utilization_actu_setpnt.pdf')
 		return fig
+
+	def plot_actuate_setpnt_ts_assist(self, genieFlag):
+		if genieFlag:
+			setpntDict = self.genierawdb.load('setpoint_per_zone')
+			actuateDict = self.genierawdb.load('actuate_per_zone')
+		else:
+			setpntDict = self.thermrawdb.load('wcad_per_zone_filtered')
+			actuateDict = self.thermrawdb.load('actuate_per_zone')
+		actuateTS = defaultdict(int)
+		setpntTS = defaultdict(int)
+
+		for actuate in actuateDict.values():
+			for tp in actuate['timestamp']:
+				actuateTS[(tp.year-2013)*12+tp.month] += 1
+		for setpnt in setpntDict.values():
+			for tp in setpnt['timestamp']:
+				setpntTS[(tp.year-2013)*12+tp.month] += 1
+		return setpntTS, actuateTS
+
+		
 	
 	def plot_actuate_setpnt_ts(self):
 		GenieFlag = True
@@ -189,16 +236,20 @@ class genie_plotter(plotter):
 		fig = plt.figure(figsize=(4,2))
 		p1 = plt.bar(x-0.1, np.array(genieSetpnt.values()), width=0.2, align='center')
 		p2 = plt.bar(x-0.1, np.array(genieSetpnt.values()), bottom=np.array(genieSetpnt.values()), width=0.2, align='center')
-		p3 = plt.bar(x-0.1, np.array(thermSetpnt.values()), width=0.2, align='center')
-		p4 = plt.bar(x-0.1, np.array(thermSetpnt.values()), bottom=np.array(thermSetpnt.values()), width=0.2, align='center')
+		p3 = plt.bar(x+0.1, np.array(thermSetpnt.values()), width=0.2, align='center')
+		p4 = plt.bar(x+0.1, np.array(thermSetpnt.values()), bottom=np.array(thermSetpnt.values()), width=0.2, align='center')
 
 		plt.show()
 		plotter.save_fig(fig, self.figdir+'utilization_actu_setpnt.pdf')
 		return fig
 
 	def plot_all(self):
-		self.plot_setpnt_dev()
-		self.plot_temp_vs_setpnt()
-		self.plot_energy_diff()
-		self.plot_calendar_sample()
-		self.plot_actuate_setpnt_ts()
+		GenieFlag = True
+		ThermFlag = False
+		#self.plot_setpnt_dev()
+		#self.plot_temp_vs_setpnt(GenieFlag)
+		#self.plot_temp_vs_setpnt(ThermFlag)
+		#self.plot_energy_diff(GenieFlag)
+		self.plot_energy_diff(ThermFlag)
+		#self.plot_calendar_sample()
+		#self.plot_actuate_setpnt_ts()

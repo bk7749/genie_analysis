@@ -24,7 +24,7 @@ class processor:
 	genierawdb = None
 	thermrawdb = None
 	beginTime = datetime(2013,12,1,0,0,0)
-	endTime = datetime(2015,8,1,0,0,0)
+	endTime = datetime(2015,7,31,23,0,0)
 	confrooms = ['2109', '2217', '3109', '3127', '4109', '4217']
 	normrooms = ['2150']
 
@@ -61,25 +61,6 @@ class processor:
 		return outputList
 
 
-	def process_all_data(self):
-		print "Start processing all data"
-		ForceFlag = True
-		GenieFlag = True
-		ThermFlag = False
-		#1-1
-		self.proc_genie_setdev(True)
-		print "Finish processing genie setpoint deviation"
-		#1-2
-		self.proc_therm_setdev(True)
-		print "Finish processing thermostat setpoint deviation"
-
-		#2-1
-		self.proc_energy(True, GenieFlag)
-		print "Finish processing genie energy analysis"
-		#2-2
-		self.proc_energy(True, ThermFlag)
-		print "Finish processing thermostat energy analysis"
-	
 	def proc_genie_setdev(self, forceFlag):
 		db = self.genieprocdb
 		rawdb = self.genierawdb
@@ -115,7 +96,7 @@ class processor:
 	def proc_therm_setdev(self, forceFlag):
 		if not self.proceedCheck(self.thermprocdb, 'wcad_dev_zone', forceFlag) and not self.proceedCheck(self.thermprocdb, 'setpoint_dev_hour', forceFlag) and not self.proceedCheck(self.thermprocdb, 'setpoint_dev_mont'):
 			return None
-		wcads = self.thermrawdb.load('wcad_per_zone')
+		wcads = self.thermrawdb.load('wcad_per_zone_filtered')
 		wcadDevZone = defaultdict(list)
 		wcadDevMonth = defaultdict(list)
 		wcadDevHour = defaultdict(list)
@@ -155,6 +136,10 @@ class processor:
 			tp = row[1]
 			beforeEnergy = row[2]
 			afterEnergy = row[3]
+			if zone == '3242':
+				continue
+			if (tp.year-2013)*12+tp.month == 32:
+				continue
 			if afterEnergy>beforeEnergy:
 				energyWasteMonth[(tp.year-2013)*12+tp.month] += afterEnergy - beforeEnergy
 				energyWasteZone[zone] += afterEnergy - beforeEnergy
@@ -173,8 +158,37 @@ class processor:
 #			else:
 #				energySaveMonth[(tp.year-2013)*12+tp.month] -= afterEnergy - beforeEnergy
 #				energySaveZone[zone] -= afterEnergy - beforeEnergy
+		sortedEnergySaveZone = OrderedDict(sorted(energySaveZone.items(), key=operator.itemgetter(1)))
+		sortedEnergyWasteZone = dict()
+		for zone in sortedEnergySaveZone.keys():
+			if zone in energyWasteZone:
+				sortedEnergyWasteZone[zone] = energyWasteZone[zone]
+			else:
+				sortedEnergyWasteZone[zone] = 0
 
 		db.store('energy_save_month', energySaveMonth)
-		db.store('energy_save_zone', energySaveZone)
 		db.store('energy_waste_month', energyWasteMonth)
-		db.store('energy_waste_zone', energyWasteZone)
+		#db.store('energy_save_zone', energySaveZone)
+		#db.store('energy_waste_zone', energyWasteZone)
+		db.store('energy_save_zone', sortedEnergySaveZone)
+		db.store('energy_waste_zone', sortedEnergyWasteZone)
+	
+	def process_all_data(self):
+		print "Start processing all data"
+		ForceFlag = True
+		GenieFlag = True
+		ThermFlag = False
+		#1-1
+		self.proc_genie_setdev(True)
+		print "Finish processing genie setpoint deviation"
+		#1-2
+		self.proc_therm_setdev(True)
+		print "Finish processing thermostat setpoint deviation"
+
+		#2-1
+		self.proc_energy(True, GenieFlag)
+		print "Finish processing genie energy analysis"
+		#2-2
+		self.proc_energy(True, ThermFlag)
+		print "Finish processing thermostat energy analysis"
+	
