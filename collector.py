@@ -106,6 +106,10 @@ class collector():
 			diffIdx = pd.concat([pd.Series((False)), afterData>=beforeData+threshold])
 		elif not descendFlag and not ascendFlag:
 			diffIdx = pd.concat([pd.Series((False)), abs(afterData-beforeData)>=threshold])
+		for i, flag in enumerate(diffIdx):
+			if flag:
+				print i
+
 		diffVals = data['value'][diffIdx]
 		diffTime = data['timestamp'][diffIdx]
 		diffDF = pd.DataFrame({'timestamp':diffTime, 'value':diffVals})
@@ -137,7 +141,9 @@ class collector():
 	# -> Actuate (DataFrame)
 	def calc_therm_actuate(self, acs, oc):
 		acsDiff = self.diff_list(acs, True, False, 3)
-		ocDiff = self.diff_list(oc, False, False, 0.1)
+		oc = oc[oc['value']!=2]
+		oc.index = range(0,len(oc))
+		ocDiff = self.diff_list(oc, False, True, 1.5)
 #		acsDiffIdx = pd.concat([pd.Series((False)), acs['value'][1:]<acs['value'][:-1]-3])
 #		acsDiffVals = acs['value'][acsDiffIdx]
 #		acsDiffTime = acs['timestamp'][acsDiffIdx]
@@ -161,11 +167,12 @@ class collector():
 		return pd.DataFrame({'timestamp':timelist, 'value':actuate})
 
 	def collect_therm_actuate_per_zone(self, forceFlag):
-		#if not self.proceedCheck(self.thermrawdb,'actuate_per_zone', forceFlag):
-		#	return None
+		if not self.proceedCheck(self.thermrawdb,'actuate_per_zone', forceFlag):
+			return None
 
 		thermActuateData = dict()
 		for zone in self.zonelist:
+			print zone
 			actuate = self.bdm.download_dataframe('Temp Occ Sts', 'PresentValue', zone, self.beginTime, self.endTime)
 			if len(actuate)<=0:
 				print("No temp occ sts at: ", zone)
@@ -176,6 +183,7 @@ class collector():
 				actuate = self.calc_therm_actuate(acs,oc)
 			else:
 				actuate = self.diff_list(actuate,False,True, 0.1)
+			print len(actuate)
 			thermActuateData[zone] = actuate
 
 		self.thermrawdb.store('actuate_per_zone', thermActuateData)
@@ -187,15 +195,21 @@ class collector():
 		template = 'Genie HVAC Control'
 		sensorpoint = 'Temperature'
 		genieSetpointData = dict()
+		genieSetpointDiffData = dict()
 		for zone in self.geniezonelist:
+			print zone
 			rawZoneSetpoint = self.bdm.download_dataframe(template, sensorpoint, zone, self.beginTime, self.endTime)
 			if len(rawZoneSetpoint)<=0:
 				continue
 			genieSetpointData[zone] = rawZoneSetpoint
+			setpointDiff = pd.DataFrame({'timestamp':rawZoneSetpoint[1:], 'value':pd.diff(rawZoneSetpoint['value'], axis=0)})
+			genieSetpointDiffData[zone] = setpointDiff
+
 		self.genierawdb.store('setpoint_per_zone', genieSetpointData)
+		self.genierawdb.store('setpoint_diff_per_zone', genieSetpointDiffData)
 		
 	def wcad_error_filter(self, wcads):
-		errorzoneList = list()
+		errorZoneList = list()
 		cntList = list()
 		cntList.append(0)
 		basedate = datetime(2013,10,1,0,0,0,tzinfo=timezone('US/Pacific'))
@@ -235,12 +249,12 @@ class collector():
 					wcadPerZoneCnt = 1
 				prevweek = currweek
 				if wcadPerZoneCnt >= avg+std:
-					errorzoneList.append(zone)
+					errorZoneList.append(zone)
 					break
 
-		for zone in errorzoneList:
+		for zone in errorZoneList:
 			del wcads[zone]
-		return wcads
+		return wcads, errorZoneList
 	
 	def collect_therm_wcad_per_zone(self, forceFlag):
 		if not self.proceedCheck(self.thermrawdb,'wcad_per_zone', forceFlag) and not self.proceedCheck(self.thermrawdb,'wcad_per_zone_filtered', forceFlag): 
@@ -249,19 +263,30 @@ class collector():
 		template = 'Warm Cool Adjust'
 		sensorpoint = 'PresentValue'
 		wcadData = dict()
+		entireWcadData = dict()
 		for zone in self.zonelist:
 			print zone
 			if zone!='3242':
 				continue
 			wcad = self.bdm.download_dataframe(template, sensorpoint, zone, self.beginTime, self.endTime)
+			entireWcadData[zone] = wcad
 			if len(wcad)<=0:
 				continue
 			wcad = self.diff_list(wcad, False, False, 0.5)
 			wcadData[zone] = wcad
 
 		self.thermrawdb.store('wcad_per_zone', wcadData)
-		wcadDataFiltered = self.wcad_error_filter(wcadDict)
+		wcadDict= dict()
+		wcadDataFiltered, errorZoneList = self.wcad_error_filter(wcadDict)
+		entireWcadData = {zone: entireWcadData[zone] for zone in entireWcadData.keys-errorZoneList}
+
+		wcadDiffFiltered = dict()
+		for zone, wcad in wcadDataFiltered.iteritems():
+			wcadDiffFiltered[zone] = pd.DataFrame({'timestamp':wcad['timestamp'][1:], 'value':np.diff(wcad['value'], axis=0)})
+			
 		self.thermrawdb.store('wcad_per_zone_filtered', wcadDataFiltered)
+		self.thermrawdb.store('entire_wcad_per_zone', wcadDataFiltered)
+		self.thermrawdb.store('wcad_diff_per_zone', wcadDiffFiltered)
 		
 	#TODO: Should be changed to use np semantics
 	def calc_energy(self, ts):

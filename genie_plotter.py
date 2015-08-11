@@ -202,7 +202,7 @@ class genie_plotter:
 		axes[1].set_ylim([0.9,3.1])
 		plt.show()
 		
-		plotter.save_fig(fig, self.figdir+'utilization_actu_setpnt.pdf')
+		plotter.save_fig(fig, self.figdir+'calendar_sample.pdf')
 		return fig
 
 	def plot_actuate_setpnt_ts_assist(self, genieFlag):
@@ -234,10 +234,11 @@ class genie_plotter:
 		x =np.arange(0,len(genieSetpnt))
 
 		fig = plt.figure(figsize=(4,2))
-		p1 = plt.bar(x-0.1, np.array(genieSetpnt.values()), width=0.2, align='center')
-		p2 = plt.bar(x-0.1, np.array(genieSetpnt.values()), bottom=np.array(genieSetpnt.values()), width=0.2, align='center')
-		p3 = plt.bar(x+0.1, np.array(thermSetpnt.values()), width=0.2, align='center')
-		p4 = plt.bar(x+0.1, np.array(thermSetpnt.values()), bottom=np.array(thermSetpnt.values()), width=0.2, align='center')
+		p1 = plt.bar(x-0.1, np.array(genieSetpnt.values()), width=0.2, align='center', color='b')
+		p2 = plt.bar(x-0.1, np.array(genieActuate.values()), bottom=np.array(genieSetpnt.values()), width=0.2, align='center', color='c')
+		p3 = plt.bar(x+0.1, np.array(thermSetpnt.values()), width=0.2, align='center', color='magenta')
+		p4 = plt.bar(x+0.1, np.array(thermActuate.values())[:-1], bottom=np.array(thermSetpnt.values()), width=0.2, align='center', color='r')
+		#TODO: range should be changed.
 
 		plt.show()
 		plotter.save_fig(fig, self.figdir+'utilization_actu_setpnt.pdf')
@@ -250,6 +251,6 @@ class genie_plotter:
 		#self.plot_temp_vs_setpnt(GenieFlag)
 		#self.plot_temp_vs_setpnt(ThermFlag)
 		#self.plot_energy_diff(GenieFlag)
-		self.plot_energy_diff(ThermFlag)
+		#self.plot_energy_diff(ThermFlag)
 		#self.plot_calendar_sample()
-		#self.plot_actuate_setpnt_ts()
+		self.plot_actuate_setpnt_ts()

@@ -75,13 +75,13 @@ class processor:
 		commonsetpntSensorpoint = 'default_common_setpoint'
 		commonsetpntBeginTime = datetime(2013,10,1,0,0,0)
 		commonsetpntEndTime = datetime(2014,10,1,0,0,0)
-		for zone in setpoints.keys():
+		for zone, setpntList in setpoints.iteritems():
 			commonsetpnt = self.bdm.download_dataframe(commonsetpntTemplate, commonsetpntSensorpoint, zone, commonsetpntBeginTime, commonsetpntEndTime)
 			if len(commonsetpnt)>0:
 				commonsetpnt = commonsetpnt['value'][0]
 			else:
 				continue
-			setpntList = setpoints[zone]
+#			setpntList = setpoints[zone]
 			for i in range(0,len(setpntList)):
 				setdiff = float(setpntList['value'][i]) - float(commonsetpnt) 
 				tp = setpntList['timestamp'][i]
@@ -92,6 +92,39 @@ class processor:
 		db.store('setpoint_dev_zone', setpntdevZone)
 		db.store('setpoint_dev_hour', setpntdevHour)
 		db.store('setpoint_dev_month', setpntdevMonth)
+	
+	def proc_genie_setpnt_diff(self, forceFlag, genieFlag):
+		if genieFlag:
+			db = self.genieprocdb
+			rawdb = self.genierawdb
+			setpntDiffs = rawdb.load('setpoint_diff_per_zone')
+		else:
+			db = self.thermprocdb
+			rawdb = self.thermrawdb
+			setpntDiffs = rawdb.load('wcad_diff_per_zone')
+
+		setpntDiffZone = defaultdict(list)
+		setpntDiffMonth= defaultdict(list)
+		setpntDiffHour = defaultdict(list)
+		for zone, setpntDiff in setpntDiffs.iteritems():
+			for row in setpntList.iterrows():
+				tp = row[1]['timestamp']
+				val = row[1]['value']
+				setpntDiffZone[zone].append(setdiff)
+				setpntDiffMonth[(tp.year-2013)*12+tp.month].append(setdiff)
+				setpnfDiffHour[tp.hour].append(setdiff)
+
+		if genieFlag:
+			db.store('setpoint_diff_per_zone', setpntDiffZone)
+			db.store('setpoint_diff_per_month', setpntDiffMonth)
+			db.store('setpoint_diff_per_hour', setpntDiffHour)
+		else:
+			db.store('wcad_diff_per_zone', setpntDiffZone)
+			db.store('wcad_diff_per_month', setpntDiffMonth)
+			db.store('wcad_diff_per_hour', setpntDiffHour)
+	
+	def proc
+
 	
 	def proc_therm_setdev(self, forceFlag):
 		if not self.proceedCheck(self.thermprocdb, 'wcad_dev_zone', forceFlag) and not self.proceedCheck(self.thermprocdb, 'setpoint_dev_hour', forceFlag) and not self.proceedCheck(self.thermprocdb, 'setpoint_dev_mont'):
@@ -172,6 +205,31 @@ class processor:
 		#db.store('energy_waste_zone', energyWasteZone)
 		db.store('energy_save_zone', sortedEnergySaveZone)
 		db.store('energy_waste_zone', sortedEnergyWasteZone)
+
+	def proc_freq(self, forceFlag, genieFlag, dataType):
+		if genieFlag:
+			db = self.genieprocdb
+			rawdb = self.genierawdb
+		else:
+			db = self.thermprocdb
+			rawdb = self.thermrawdb
+		if dataType == 'wcad':
+			dataDict = rawdb.load(dataType+"_per_zone_filtered")
+		else:
+			dataDict = rawdb.load(dataType+"_per_zone")
+		
+		monthDict = defaultdict(int)
+		hourDict = defaultdict(int)
+		zoneDict = defaultdict(int)
+		for zone, data in dataDict.iteritems():
+			for tp in data['timestamp']:
+				monthDict[(tp.year-2013)*12+tp.month] += 1
+				hourDict[tp.hour] += 1
+				zoneDict[zone] += 1
+
+		db.store(dataType+'_per_month', monthDict)
+		db.store(dataType+'_per_hour', hourDict)
+		db.store(dataType+'_per_zone', zoneDict)
 	
 	def process_all_data(self):
 		print "Start processing all data"
@@ -179,16 +237,25 @@ class processor:
 		GenieFlag = True
 		ThermFlag = False
 		#1-1
-		self.proc_genie_setdev(True)
+		self.proc_genie_setdev(ForceFlag)
 		print "Finish processing genie setpoint deviation"
 		#1-2
-		self.proc_therm_setdev(True)
+		self.proc_therm_setdev(ForceFlag)
 		print "Finish processing thermostat setpoint deviation"
 
 		#2-1
-		self.proc_energy(True, GenieFlag)
+		self.proc_energy(ForceFlag, GenieFlag)
 		print "Finish processing genie energy analysis"
 		#2-2
-		self.proc_energy(True, ThermFlag)
+		self.proc_energy(ForceFlag, ThermFlag)
 		print "Finish processing thermostat energy analysis"
+
+		#3-1
+		self.proc_freq(ForceFlag, GenieFlag, 'actuate')
+		self.proc_freq(ForceFlag, GenieFlag, 'setpoint')
+		self.proc_freq(ForceFlag, ThermFlag, 'actuate')
+		self.proc_freq(ForceFlag, ThermFlag, 'wcad')
+	
+		self.proc_genie_setpnt_diff(forceFlag, GenieFlag):
+		self.proc_genie_setpnt_diff(forceFlag, ThermFlag):
 	
