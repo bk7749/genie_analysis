@@ -27,8 +27,8 @@ class collector():
 
 	def __init__(self):
 		self.bdm = bdmanager()
-		self.zonelist = self.csv2list('metadata\partial_zonelist.csv')
-		self.geniezonelist = self.csv2list('metadata\partial_geniezonelist.csv')
+		#self.zonelist = self.csv2list('metadata\partial_zonelist.csv')
+		#self.geniezonelist = self.csv2list('metadata\partial_geniezonelist.csv')
 		self.zonelist = self.csv2list('metadata\zonelist.csv')
 		self.geniezonelist = self.csv2list('metadata\geniezonelist.csv')
 		self.genierawdb = localdb('genieraws.shelve')
@@ -68,9 +68,12 @@ class collector():
 				continue
 			newofftimeTime = list()
 			newofftimeVal = list()
-			for i, value in enumerate(offtime['value']):
-				if value != None:
-					newofftimeTime.append(offtime['timestamp'][i])
+			#for i, value in enumerate(offtime['value']):
+			for row in offtime.iterrows():
+				tp = row[1]['timestamp']
+				val = row[1]['value']
+				if val != 'None':
+					newofftimeTime.append(tp)
 					newofftimeVal.append(3)
 			newofftime = self.bdm.twolist2pddf(newofftimeTime, newofftimeVal)
 			genieActuateData[zone] = newofftime
@@ -106,9 +109,6 @@ class collector():
 			diffIdx = pd.concat([pd.Series((False)), afterData>=beforeData+threshold])
 		elif not descendFlag and not ascendFlag:
 			diffIdx = pd.concat([pd.Series((False)), abs(afterData-beforeData)>=threshold])
-		for i, flag in enumerate(diffIdx):
-			if flag:
-				print i
 
 		diffVals = data['value'][diffIdx]
 		diffTime = data['timestamp'][diffIdx]
@@ -202,7 +202,7 @@ class collector():
 			if len(rawZoneSetpoint)<=0:
 				continue
 			genieSetpointData[zone] = rawZoneSetpoint
-			setpointDiff = pd.DataFrame({'timestamp':rawZoneSetpoint[1:], 'value':pd.diff(rawZoneSetpoint['value'], axis=0)})
+			setpointDiff = pd.DataFrame({'timestamp':rawZoneSetpoint['timestamp'][1:], 'value':np.diff(rawZoneSetpoint['value'], axis=0)})
 			genieSetpointDiffData[zone] = setpointDiff
 
 		self.genierawdb.store('setpoint_per_zone', genieSetpointData)
@@ -266,7 +266,7 @@ class collector():
 		entireWcadData = dict()
 		for zone in self.zonelist:
 			print zone
-			if zone!='3242':
+			if zone=='3242':
 				continue
 			wcad = self.bdm.download_dataframe(template, sensorpoint, zone, self.beginTime, self.endTime)
 			entireWcadData[zone] = wcad
@@ -276,9 +276,9 @@ class collector():
 			wcadData[zone] = wcad
 
 		self.thermrawdb.store('wcad_per_zone', wcadData)
-		wcadDict= dict()
-		wcadDataFiltered, errorZoneList = self.wcad_error_filter(wcadDict)
-		entireWcadData = {zone: entireWcadData[zone] for zone in entireWcadData.keys-errorZoneList}
+#		wcadDict= dict()
+		wcadDataFiltered, errorZoneList = self.wcad_error_filter(wcadData)
+		entireWcadData = {zone: entireWcadData[zone] for zone in list(set(entireWcadData.keys())-set(errorZoneList))}
 
 		wcadDiffFiltered = dict()
 		for zone, wcad in wcadDataFiltered.iteritems():
@@ -300,7 +300,7 @@ class collector():
 			totalEnergy += energyBlock
 		return totalEnergy
 
-	def calc_energy_diff(self, beforeTime, zone):
+	def calc_energy_diff_deprecated(self, beforeTime, zone):
 		template = 'HVAC Zone Power'
 		sensorpoint = 'total_zone_power'
 		if beforeTime.weekday()==4 or beforeTime.weekday()==6:
@@ -321,6 +321,40 @@ class collector():
 		return energyDiff
 
 
+# Input: tp (datetime: indicating when the actuation happens), zone (string)
+# Output: (list: containing energy difference information, which will be added to a list)
+# Note: 1) each prev and post ranges are time1~time2 and time3~time4 to skip weekends.
+#       2) tp should not be a weekend
+	def calc_energy_diff(self, tp, zone):
+		template = 'HVAC Zone Power'
+		sensorpoint = 'total_zone_power'
+		prevTime1 = tp - timedelta(days=1)
+		prevTime2 = tp
+		prevTime3 = tp
+		prevtime4 = tp
+		postTime1 = tp
+		postTime2 = tp+timedelta(days=1)
+		postTime3 = postTime2
+		postTime4 = postTime2 
+		if tp.weekday()==0:
+			prevTime1 = tp - timedelta(days=3)
+			prevTime2 = (tp-timedelta(days=2)).replace(hour=0,minute=0,second=0)
+			prevTime3 = tp.replace(hour=0,minute=0,second=0)
+			prevTime4 = tp
+		elif tp.weekday()==4:
+			postTime1 = tp
+			postTime2 = (tp+timedelta(days=1)).replace(hour=0,minute=0,second=0)
+			postTime3 = postTime2 + timedelta(days=2)
+			postTime4 = tp+timedelta(days=3)
+		prevPower1 = self.bdm.download_dataframe(template, sensorpoint, zone, prevTime1, prevTime2)
+		prevPower2 = self.bdm.download_dataframe(template, sensorpoint, zone, prevTime3, prevTime4)
+		postPower1 = self.bdm.download_dataframe(template, sensorpoint, zone, postTime1, postTime2)
+		postPower2 = self.bdm.download_dataframe(template, sensorpoint, zone, postTime3, postTime4)
+		prevEnergy = self.calc_energy(prevPower1) + self.calc_energy(prevPower2)
+		postEnergy = self.calc_energy(postPower1) + self.calc_energy(postPower2)
+		return [zone, tp, prevEnergy, postEnergy]
+
+
 # Store data structure: list of list. each list contains zone, timestamp, beforeEnergy, afterEnergy
 	def collect_energy_diff(self, forceFlag, genieFlag):
 		if genieFlag:
@@ -335,14 +369,15 @@ class collector():
 		actuateEnergyData = list()
 		for zone in actuateData.keys():
 			print zone
-			if zone!='3242':
+			if zone=='3242':
 				continue
 			zoneActuate = actuateData[zone]
 #			for tp in zoneActuate:
-			for i in range(0,len(zoneActuate)):
-				tp = zoneActuate['timestamp'][i]
-				#tp = zoneActuate[i]
-				beforeTime = tp.replace(hour=0,minute=0,second=0)
+#			for i in range(0,len(zoneActuate)):
+			for tp in actuateData[zone]['timestamp']:
+				#beforeTime = zoneActuate['timestamp'][i]
+				if tp.weekday()==5 or tp.weekday()==6:
+					continue
 				energyDiff = self.calc_energy_diff(beforeTime, zone)
 				actuateEnergyData.append(energyDiff)
 		db.store('actuate_energy', actuateEnergyData)
@@ -355,8 +390,8 @@ class collector():
 		setpointEnergyData = list()
 		for zone in setpointData.keys():
 			print zone
-			#if zone!='3242':
-			#	continue
+			if zone=='3242':
+				continue
 			zoneSetpoint = setpointData[zone]
 			for i in range(0, len(zoneSetpoint)):
 				tp = zoneSetpoint['timestamp'][i]
@@ -433,19 +468,19 @@ class collector():
 		ThermFlag = False
 		print "Start collecting data from BulidingDepot"
 
-		#self.collect_genie_actuate_per_zone(forceFlag)
+		self.collect_genie_actuate_per_zone(forceFlag)
 		print "Finish collecting genie actuation data"
 
-		#self.collect_therm_actuate_per_zone(forceFlag)
+		self.collect_therm_actuate_per_zone(forceFlag)
 		print "Finish collecting thermostat actuation data"
 		
-		#self.collect_genie_setpoint_per_zone(forceFlag)
+		self.collect_genie_setpoint_per_zone(forceFlag)
 		print "Finish collecting genie setpoint data"
 		
-		#self.collect_therm_wcad_per_zone(forceFlag)
+		self.collect_therm_wcad_per_zone(forceFlag)
 		print "Finish collecting thermostat warm-cool adjust data"
 
-		#self.collect_energy_diff(forceFlag, GenieFlag)
+		self.collect_energy_diff(forceFlag, GenieFlag)
 		print "Finish calculating genie energy differnce"
 
 		self.collect_energy_diff(forceFlag, ThermFlag)

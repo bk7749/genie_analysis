@@ -30,10 +30,10 @@ class processor:
 
 	def __init__(self):
 		self.bdm = bdmanager()
-		self.zonelist = self.csv2list('metadata\partial_zonelist.csv')
-		self.geniezonelist = self.csv2list('metadata\partial_geniezonelist.csv')
-		#self.zonelist = self.csv2list('metadata\zonelist.csv')
-		#self.geniezonelist = self.csv2list('metadata\geniezonelist.csv')
+		#self.zonelist = self.csv2list('metadata\partial_zonelist.csv')
+		#self.geniezonelist = self.csv2list('metadata\partial_geniezonelist.csv')
+		self.zonelist = self.csv2list('metadata\zonelist.csv')
+		self.geniezonelist = self.csv2list('metadata\geniezonelist.csv')
 		self.genierawdb = localdb('genieraws.shelve')
 		self.thermrawdb = localdb('thermraws.shelve')
 		self.genieprocdb = localdb('genieprocessed.shelve')
