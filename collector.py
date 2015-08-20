@@ -13,6 +13,18 @@ from datetime import datetime, timedelta
 import numpy as np
 import operator
 from pytz import timezone
+import math
+
+# Description for each data in db
+# GENIE
+# 1. actuate_per_zone: entire raw actuate per zone. each actuate is template:"Genie HVAC Control", sensorpoint:"Actuate". This is not actual Actuate because raw data contains redundant data from normal schedule. It will be removed at processor.proc_genie_actu_freq().
+# 2. setpoint_per_zone: entire raw setpoint per zone. each setpoint is template:"Genie HVAC Control", sensorpoint:"Temperature"
+# 3. setpoint_diff_per_zone: It shows how each setpoint changes from its previous one. This is for analyzing user behavior.
+# 4. actuate_energy: energy saving and wastage for each actuate activity
+# 5. setpoint_energy: energy saving and wastage for each setpoint activity
+# 6. occ_samples: Samples of several zones' occupied command. This is for showing effects of Calendar system
+# 7. temp_vs_setpnt: context information of zone temperature for each setpoint activity. Map from current temperature to corresponding setpoints.
+# 8. temp_vs_setpnt_diff: context information of zone temperature for each setpoint diff. Map from current temperature to corresponding setpoint diffs.
 
 class collector():
 	bdm = None
@@ -20,11 +32,20 @@ class collector():
 	geniezonelist = None
 	genierawdb = None
 	thermrawdb = None
+	generaldb = None
 	beginTime = datetime(2013,12,1,0,0,0)
 	endTime = datetime(2015,7,31,23,0,0)
 	confrooms = ['2109', '2217', '3109', '3127', '4109', '4217']
 	normrooms = ['2150']
+	errorZones = ['3242']
+	resetTPs = None
 
+	# Input: tp (datetime), offset (timedelta(hours=7 or 8))
+	# Output tp (datetime) but timezone (PST) is added
+	# Note: Offset stands for summer time offset (know this is not good)
+	# 		To add timezone to datetime. Just adding naive timezone does not work. Should study why this happens
+	def add_timezone(self, tp, offset):
+		return (tp+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific'))
 	def __init__(self):
 		self.bdm = bdmanager()
 		#self.zonelist = self.csv2list('metadata\partial_zonelist.csv')
@@ -33,6 +54,33 @@ class collector():
 		self.geniezonelist = self.csv2list('metadata\geniezonelist.csv')
 		self.genierawdb = localdb('genieraws.shelve')
 		self.thermrawdb = localdb('thermraws.shelve')
+		self.generaldb = localdb('general.shelve')
+		# TODO: Should be change to use a function. remove repetition
+		self.resetTPs = [(datetime(2014,5,15,20,46,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,7,11,8,31,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,7,30,11,35,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,8,5,17,7,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,8,5,17,14,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,8,12,15,42,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,8,13,13,4,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,8,18,14,3,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,8,18,14,9,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,8,19,13,20,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,10,12,7,2,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2014,10,31,14,18,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2015,6,29,18,49,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),\
+				(datetime(2015,7,13,17,5,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+		#TODO Change following dates
+				(datetime(2014,2,23,19,0,0)+timedelta(hours=8)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2014,6,28,19,0,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2014,6,29,12,0,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2014,7,6,12,1,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2014,7,6,12,30,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2014,7,6,12,59,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2014,10,12,19,0,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2014,11,16,19,0,0)+timedelta(hours=8)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2014,11,16,19,37,0)+timedelta(hours=8)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific')),
+				(datetime(2015,7,12,19,1,0)+timedelta(hours=7)).replace(tzinfo=timezone('UTC')).astimezone(timezone('US/Pacific'))]
 	
 	def csv2list(self, filename):
 		outputList = list()
@@ -44,7 +92,7 @@ class collector():
 
 # if forceFlag is turned on, db deletes data and collect again
 # tag means data name inside the db
-	def proceedCheck(self, db, tag, forceFlag):
+	def proceed_check(self, db, tag, forceFlag):
 		if not forceFlag:
 			if db.check(tag):
 				return False
@@ -52,12 +100,13 @@ class collector():
 				return True
 		else:
 			if db.check(tag):
-				db.remove(tag)
+				#db.remove(tag)
 				pass
 			return True
 
-	def collect_genie_actuate_per_zone(self, forceFlag):
-		if not self.proceedCheck(self.genierawdb,'actuate_per_zone', forceFlag):
+	#def collect_genie_actuate_per_zone_deprecated(self, forceFlag):
+	def collect_genie_offtime_per_zone(self, forceFlag):
+		if not self.proceed_check(self.genierawdb,'actuate_per_zone', forceFlag):
 			return None
 		genieActuateData = dict()
 		template = 'Genie HVAC Control'
@@ -65,19 +114,110 @@ class collector():
 		for zone in self.geniezonelist:
 			offtime = self.bdm.download_dataframe(template, sensorpoint, zone, self.beginTime, self.endTime)
 			if len(offtime)<=0:
-				continue
-			newofftimeTime = list()
-			newofftimeVal = list()
-			#for i, value in enumerate(offtime['value']):
-			for row in offtime.iterrows():
-				tp = row[1]['timestamp']
-				val = row[1]['value']
-				if val != 'None':
-					newofftimeTime.append(tp)
-					newofftimeVal.append(3)
-			newofftime = self.bdm.twolist2pddf(newofftimeTime, newofftimeVal)
+				newofftime = pd.DataFrame({"timestamp":[],"value":[]})
+			else:
+				newofftimeTime = list()
+				newofftimeVal = list()
+				#for i, value in enumerate(offtime['value']):
+				for row in offtime.iterrows():
+					tp = row[1]['timestamp']
+					val = row[1]['value']
+					if val != 'None':
+						newofftimeTime.append(tp)
+						newofftimeVal.append(1)
+				newofftime = self.bdm.twolist2pddf(newofftimeTime, newofftimeVal)
 			genieActuateData[zone] = newofftime
+		self.genierawdb.store('offtime_per_zone', genieActuateData)
+
+	def calc_genie_actuate_deprecated2(self, gacts, starts):
+		actuates = gacts
+		for row in gacts.iterrows():
+			idx = row[0]
+			tp = row[1]['timestamp']
+			start = datetime.strptime(starts[starts['timestamp']<=tp].tail(1)['value'][0], '%I:%M%p')
+			start = start.replace(tzinfo= timezone('US/Pacific'))
+			dt = tp.replace(year=1900, month=1, day=1) - start
+			if abs(dt) < timedelta(minutes=10):
+				actuates = actuates.drop(idx)
+		actuates.index = range(0,len(actuates))
+		return actuates
+
+	def collect_genie_actuate_per_zone_deprecated2(self, forceFlag):
+		if not self.proceed_check(self.genierawdb, 'actuate_per_zone', forceFlag):
+			return None
+		genieActuateData = dict()
+		for zone in self.geniezonelist:
+			print zone
+			genieActuate = self.bdm.download_dataframe('Genie HVAC Control', 'Actuate', zone, self.beginTime, self.endTime)
+			schedStart = self.bdm.download_dataframe('HVAC Zone Control Schedule Weekday', 'start', zone, self.beginTime, self.endTime)
+			if len(genieActuate)<=0 or len(schedStart)<=0:
+				continue
+			genieActuate = genieActuate[genieActuate['value']==3]
+			genieActuate.index = range(0,len(genieActuate))
+#			schedStart['value'] = datetime.strptime(schedStart['value'], '%I:%M%p')
+
+			actuate = self.calc_genie_actuate_deprecated2(genieActuate, schedStart)
+			genieActuateData[zone] = actuate
+
 		self.genierawdb.store('actuate_per_zone', genieActuateData)
+
+	def check_system_reset_timing(self, tp):
+		# Those should not be included
+		for resetTP in self.resetTPs:
+			if abs(tp-resetTP)<timedelta(minutes=7):
+				return True
+		return False
+
+	def calc_genie_actuate(self, actuate, offtime):
+#		offtime = self.genierawdb.load('offtime_per_zone')
+#		offtime = offtime[zone]
+		oneFlag = False
+		threeFlag = False
+		dropList = list()
+		if len(actuate)==0:
+			return actuate
+#		actIter = actuate.iterrows()
+#		prevDay = actIter.next()[1]['timestamp'].day
+		prevDay = 0
+		for rows in actuate.iterrows():
+			tp = rows[1]['timestamp']
+			val = rows[1]['value']
+			idx = rows[0]
+			#if not tp.day in [5,6] and tp.day == prevDay:
+			if self.check_system_reset_timing(tp):
+				dropList.append(idx)
+			if tp.day!=prevDay:
+				oneFlag = False
+				threeFlag = False
+			if not tp.weekday() in [5,6]:
+				if not oneFlag and val==1: #TODO: Is val string or int? maybe string?
+					dropList.append(idx)
+					oneFlag = True
+				if not threeFlag and val==3:
+					dropList.append(idx)
+					threeFlag = True
+			else:
+				if val==1:
+					if len(offtime['timestamp'][abs(offtime['timestamp']-tp)<timedelta(minutes=10)]) > 0:
+						dropList.append(idx)
+			prevDay = tp.day
+
+		newActuate = actuate.drop(dropList)			
+		newActuate.index = range(0,len(newActuate))
+		return newActuate
+
+	def collect_genie_actuate_per_zone(self, forceFlag):
+		offtimes = self.genierawdb.load('offtime_per_zone')
+		if not self.proceed_check(self.genierawdb, 'actuate_per_zone', forceFlag):
+			return None
+		genieActuates = dict()
+		for zone in self.geniezonelist:
+			#print zone
+			offtime = offtimes[zone]
+			genieActuate = self.bdm.download_dataframe('Genie HVAC Control', 'Actuate', zone, self.beginTime, self.endTime)
+			genieActuates[zone] = self.calc_genie_actuate(genieActuate, offtime)
+
+		self.genierawdb.store('actuate_per_zone', genieActuates)
 	
 	def diff_list_deprecated(self, data, descendFlag, ascendFlag, threshold):
 		prevDatum = data['value'][0]
@@ -116,14 +256,14 @@ class collector():
 		diffDF.index = range(0,len(diffDF))
 		return diffDF
 	
-	def check_near_index(self, targettp, timelist):
+	def find_near_index(self, targettp, timelist):
 		fullLen = len(timelist)
 		i1 = 0
 		i2 = 1
 		i3 = fullLen-1
 		while i2 < fullLen:
 			if abs(timelist[i2]-targettp)<timedelta(minutes=10):
-				return True
+				return i2
 			elif targettp > timelist[i2]:
 				i1 = i2
 				i2 = (i2+i3+1)/2
@@ -133,9 +273,25 @@ class collector():
 			
 			if i1==i2 or i2==i3:
 				if abs(timelist[i2]-targettp)<timedelta(minutes=10):
-					return True
+					return i2
 				else:
-					return False
+					return None
+		return None
+
+	# Input: targettp (datetime), data (pd.DataFrame)
+	def find_closest_left_index(self, targettp, data):
+		if len(data)==0:
+			return None
+		newData = data.iloc[(data['timestamp']<=targettp).values.tolist()]
+		if len(newData)==0:
+			newData = data.iloc[(data['timestamp']>=targettp).values.tolist()]
+			if len(newData)==0:
+				return None
+			lastRow = newData.head(1)
+		else:
+			lastRow = newData.tail(1)
+		return lastRow[0]
+
 	
 	# Actual Cooling Setpoint: acs (DataFrame); Occupied Command: oc(DataFrame)
 	# -> Actuate (DataFrame)
@@ -161,13 +317,13 @@ class collector():
 			tp = acsDiff['timestamp'][i]
 			oneacs = acsDiff['value'][i]
 			#if not self.check_near_index(tp,ocDiff['timestamp']):
-			if len(ocDiff['timestamp'][abs(ocDiff['timestamp']-tp)<timedelta(minutes=10)])>0:
+			if len(ocDiff['timestamp'][abs(ocDiff['timestamp']-tp)<timedelta(minutes=10)])==0:
 				actuate.append(oneacs)
 				timelist.append(tp)
 		return pd.DataFrame({'timestamp':timelist, 'value':actuate})
 
 	def collect_therm_actuate_per_zone(self, forceFlag):
-		if not self.proceedCheck(self.thermrawdb,'actuate_per_zone', forceFlag):
+		if not self.proceed_check(self.thermrawdb,'actuate_per_zone', forceFlag):
 			return None
 
 		thermActuateData = dict()
@@ -183,13 +339,55 @@ class collector():
 				actuate = self.calc_therm_actuate(acs,oc)
 			else:
 				actuate = self.diff_list(actuate,False,True, 0.1)
-			print len(actuate)
 			thermActuateData[zone] = actuate
 
 		self.thermrawdb.store('actuate_per_zone', thermActuateData)
 	
+	# Input: dict of setpoint (dict({zone:pd.DataFrame}))
+	# Output: average, std
+	def calc_avg_std(self, setpntDict):
+		zoneCnt = 0 # to exclude zones without any data
+		weightedSum = 0.0
+		weightedSqSum = 0.0
+		localBeginTime = self.add_timezone(self.beginTime,8)
+		localEndTime = self.add_timezone(self.endTime,7)
+
+		for setpoint in setpntDict.itervalues():
+			if len(setpoint)==0:
+				continue
+			zoneCnt += 1
+			setpntIter = setpoint.iterrows()
+			row = setpntIter.next()
+			prevTP = row[1]['timestamp']
+			prevVal = row[1]['value']
+			while prevTP < localBeginTime:
+				row = setpntIter.next()
+				prevTP = row[1]['timestamp']
+				prevVal = row[1]['value']
+			dt = (prevTP-localBeginTime).total_seconds()
+			weightedSum += dt * prevVal
+			weightedSqSum += dt * prevVal * prevVal
+			for row in setpntIter:
+				tp = row[1]['timestamp']
+				val = row[1]['value']
+				if tp>=localEndTime:
+					break
+				dt = (tp-prevTP).total_seconds()
+				weightedSum += dt * val
+				weightedSqSum += dt * val * val
+				prevVal = val
+				prevTP = tp
+			dt = (localEndTime-prevTP).total_seconds()
+			weightedSum += dt * prevVal
+			weightedSqSum += dt * prevVal * prevVal
+
+		totalSec = (localEndTime-localBeginTime).total_seconds()
+		average = weightedSum / totalSec / zoneCnt
+		std = math.sqrt(weightedSqSum / totalSec / zoneCnt - average*average)
+		return average, std
+	
 	def collect_genie_setpoint_per_zone(self, forceFlag):
-		if not self.proceedCheck(self.genierawdb,'setpoint_per_zone', forceFlag):
+		if not self.proceed_check(self.genierawdb,'setpoint_per_zone', forceFlag):
 			return None
 		
 		template = 'Genie HVAC Control'
@@ -205,8 +403,12 @@ class collector():
 			setpointDiff = pd.DataFrame({'timestamp':rawZoneSetpoint['timestamp'][1:], 'value':np.diff(rawZoneSetpoint['value'], axis=0)})
 			genieSetpointDiffData[zone] = setpointDiff
 
-		self.genierawdb.store('setpoint_per_zone', genieSetpointData)
-		self.genierawdb.store('setpoint_diff_per_zone', genieSetpointDiffData)
+		avg, std = self.calc_avg_std(genieSetpointData)
+		print avg, std
+		self.generaldb.store('genie_setpnt_dev_avg', avg)
+		self.generaldb.store('genie_setpnt_dev_std', std)
+		#self.genierawdb.store('setpoint_per_zone', genieSetpointData)
+		#self.genierawdb.store('setpoint_diff_per_zone', genieSetpointDiffData)
 		
 	def wcad_error_filter(self, wcads):
 		errorZoneList = list()
@@ -214,7 +416,7 @@ class collector():
 		cntList.append(0)
 		basedate = datetime(2013,10,1,0,0,0,tzinfo=timezone('US/Pacific'))
 		for zone, wcad in wcads.iteritems():
-			if zone=='3242':
+			if zone in self.errorZones:
 				continue
 			if len(wcad)<=0:
 				continue
@@ -233,7 +435,7 @@ class collector():
 		print "wcad's avg and std: ", avg, std
 
 		for zone in self.zonelist:
-			if zone == '3242' or not (zone in wcads):
+			if zone in self.errorZones or not (zone in wcads):
 				continue
 			wcad = wcads[zone]
 			if len(wcad)<=0:
@@ -255,9 +457,36 @@ class collector():
 		for zone in errorZoneList:
 			del wcads[zone]
 		return wcads, errorZoneList
+
+	def wcad_to_setpnt(self, wcadDict):
+		setpntDict = dict()
+		for zone, wcads in wcadDict.iteritems():
+			print zone
+			if len(wcads)<=0:
+				continue
+			commonSetpnts = self.bdm.download_dataframe('Common Setpoint', 'PresentValue', zone, self.beginTime, self.endTime)
+			if len(commonSetpnts)<=0:
+				continue
+			setpnts = list()
+			for row in wcads.iterrows():
+				tp = row[1]['timestamp']
+				if tp.year==2015 and tp.month==6 and tp.day==28:
+					pass
+				wcad = row[1]['value']
+				nearIdx = self.find_closest_left_index(tp,commonSetpnts)
+				if nearIdx != None:
+					setpnts.append(wcad+commonSetpnts['value'][nearIdx])
+				else:
+					print tp
+					print nearIdx
+			setpnt = pd.DataFrame({"timestamp":wcads['timestamp'], "value":setpnts})
+			setpntDict[zone] = setpnt
+		return setpntDict
+					
+
 	
 	def collect_therm_wcad_per_zone(self, forceFlag):
-		if not self.proceedCheck(self.thermrawdb,'wcad_per_zone', forceFlag) and not self.proceedCheck(self.thermrawdb,'wcad_per_zone_filtered', forceFlag): 
+		if not self.proceed_check(self.thermrawdb,'wcad_per_zone', forceFlag) and not self.proceed_check(self.thermrawdb,'wcad_per_zone_filtered', forceFlag): 
 			return None
 
 		template = 'Warm Cool Adjust'
@@ -266,26 +495,36 @@ class collector():
 		entireWcadData = dict()
 		for zone in self.zonelist:
 			print zone
-			if zone=='3242':
+			if zone in self.errorZones:
 				continue
 			wcad = self.bdm.download_dataframe(template, sensorpoint, zone, self.beginTime, self.endTime)
 			entireWcadData[zone] = wcad
 			if len(wcad)<=0:
 				continue
-			wcad = self.diff_list(wcad, False, False, 0.5)
+			wcad = self.diff_list(wcad, False, False, 0.3)
+			#wcad = self.diff_list(wcad, False, False, 0.5)
 			wcadData[zone] = wcad
 
 		self.thermrawdb.store('wcad_per_zone', wcadData)
-#		wcadDict= dict()
 		wcadDataFiltered, errorZoneList = self.wcad_error_filter(wcadData)
-		entireWcadData = {zone: entireWcadData[zone] for zone in list(set(entireWcadData.keys())-set(errorZoneList))}
+		self.thermrawdb.store('wcad_error_zone_list', errorZoneList)
+		entireWcadDataFiltered = {zone: entireWcadData[zone] for zone in list(set(entireWcadData.keys())-set(errorZoneList))}
+		
+		wcadAvg, wcadStd = self.calc_avg_std(entireWcadDataFiltered)
+		print wcadAvg, wcadStd
+		self.generaldb.store('therm_wcad_dev_avg', wcadAvg)
+		self.generaldb.store('therm_wcad_dev_std', wcadStd)
+		#entireSetpntData = self.wcad_to_setpnt(entireWcadDataFiltered)
+		#setpntAvg, setpntStd = self.calc_avg_std(entireSetpntData)
+		#print setpntAvg, setpntStd
+		#self.generaldb.store('therm_setpoint_dev_avg', setpntAvg)
+		#self.generaldb.store('therm_setpoint_dev_std', setpntStd)
 
 		wcadDiffFiltered = dict()
 		for zone, wcad in wcadDataFiltered.iteritems():
 			wcadDiffFiltered[zone] = pd.DataFrame({'timestamp':wcad['timestamp'][1:], 'value':np.diff(wcad['value'], axis=0)})
 			
 		self.thermrawdb.store('wcad_per_zone_filtered', wcadDataFiltered)
-		self.thermrawdb.store('entire_wcad_per_zone', wcadDataFiltered)
 		self.thermrawdb.store('wcad_diff_per_zone', wcadDiffFiltered)
 		
 	#TODO: Should be changed to use np semantics
@@ -328,10 +567,12 @@ class collector():
 	def calc_energy_diff(self, tp, zone):
 		template = 'HVAC Zone Power'
 		sensorpoint = 'total_zone_power'
+		if type(tp)==str:
+			pass
 		prevTime1 = tp - timedelta(days=1)
 		prevTime2 = tp
 		prevTime3 = tp
-		prevtime4 = tp
+		prevTime4 = tp
 		postTime1 = tp
 		postTime2 = tp+timedelta(days=1)
 		postTime3 = postTime2
@@ -362,23 +603,19 @@ class collector():
 		else:
 			db = self.thermrawdb
 
-		if not self.proceedCheck(db,'actuate_energy', forceFlag) and not self.proceedCheck(db, 'setpoint_energy', forceFlag):
+		if not self.proceed_check(db,'actuate_energy', forceFlag) and not self.proceed_check(db, 'setpoint_energy', forceFlag):
 			return None
 		
 		actuateData = db.load('actuate_per_zone')
 		actuateEnergyData = list()
 		for zone in actuateData.keys():
 			print zone
-			if zone=='3242':
+			if zone in self.errorZones:
 				continue
-			zoneActuate = actuateData[zone]
-#			for tp in zoneActuate:
-#			for i in range(0,len(zoneActuate)):
 			for tp in actuateData[zone]['timestamp']:
-				#beforeTime = zoneActuate['timestamp'][i]
 				if tp.weekday()==5 or tp.weekday()==6:
 					continue
-				energyDiff = self.calc_energy_diff(beforeTime, zone)
+				energyDiff = self.calc_energy_diff(tp, zone)
 				actuateEnergyData.append(energyDiff)
 		db.store('actuate_energy', actuateEnergyData)
 
@@ -390,18 +627,17 @@ class collector():
 		setpointEnergyData = list()
 		for zone in setpointData.keys():
 			print zone
-			if zone=='3242':
+			if zone in self.errorZones:
 				continue
-			zoneSetpoint = setpointData[zone]
-			for i in range(0, len(zoneSetpoint)):
-				tp = zoneSetpoint['timestamp'][i]
-				beforeTime = tp.replace(hour=0,minute=0,second=0)
-				energyDiff = self.calc_energy_diff(beforeTime, zone)
+			for tp in setpointData[zone]['timestamp']:
+				if tp.weekday()==5 or tp.weekday()==6:
+					continue
+				energyDiff = self.calc_energy_diff(tp, zone)
 				setpointEnergyData.append(energyDiff)
 		db.store('setpoint_energy', setpointEnergyData)
 		
 	def collect_occ_samples(self, forceFlag):
-		if not self.proceedCheck(self.genierawdb, 'occ_samples', forceFlag):
+		if not self.proceed_check(self.genierawdb, 'occ_samples', forceFlag):
 			return None
 
 		template = 'Occupied Command'
@@ -434,34 +670,111 @@ class collector():
 	def collect_temp_vs_setpnt(self, forceFlag, genieFlag):
 		if genieFlag:
 			db = self.genierawdb
-			if not self.proceedCheck(db,'temp_vs_setpnt', forceFlag):
+			if not self.proceed_check(db,'temp_vs_setpnt', forceFlag):
 				return None
 		else:
 			db = self.thermrawdb
-			if not self.proceedCheck(db,'temp_vs_wcad', forceFlag):
+			if not self.proceed_check(db,'temp_vs_wcad', forceFlag):
 				return None
 
 
-		tempdict = list()
+		tempDiffDict = list()
+		tempDict = list()
 		if genieFlag: 
 			zoneSetpoints = db.load('setpoint_per_zone')
+			zoneSetpntDiffs = db.load('setpoint_diff_per_zone')
 		else:
 			zoneSetpoints = db.load('wcad_per_zone_filtered')
-		for zone in zoneSetpoints.keys():
+			zoneSetpntDiffs = db.load('wcad_diff_per_zone')
+		for zone, zoneSetpoint in zoneSetpoints.iteritems():
 			print zone
-			setpointList = zoneSetpoints[zone]
-			for i in range(0,len(setpointList)):
-				tp = setpointList['timestamp'][i]
-				setpoint = setpointList['value'][i]
+			for row in zoneSetpoint.iterrows():
+				tp = row[1]['timestamp']
+				setpoint = row[1]['value']
 				currTemp = self.get_temp_point(zone, tp) # TODO: Implement this
 				if currTemp == None:
 					continue
-				tempdict.append({currTemp:setpoint})
-		if genieFlag:
-			db.store('temp_vs_setpnt', tempdict)
-		else:
-			db.store('temp_vs_wcad', tempdict)
+				tempDict.append({currTemp:setpoint})
+		for zone, zoneSetpntDiff in zoneSetpntDiffs.iteritems():
+			print zone
+			for row in zoneSetpntDiff.iterrows():
+				tp = row[1]['timestamp']
+				setpntDiff = row[1]['value']
+				currTemp = self.get_temp_point(zone, tp)
+				if currTemp == None:
+					continue
+				tempDiffDict.append({currTemp:setpntDiff})
 
+		if genieFlag:
+			db.store('temp_vs_setpnt', tempDict)
+			db.store('temp_vs_setpnt_diff', tempDiffDict)
+		else:
+			db.store('temp_vs_wcad', tempDict)
+			db.store('temp_vs_wcad_diff', tempDiffDict)
+	
+	def collect_area(self, forceFlag):
+		template = "HVAC Zone Information"
+		dataType = "area"
+		beginTime = datetime(2013,7,1,0,0,0)
+		endTime = datetime(2013,7,31,0,0,0)
+		areas = dict()
+		for zone in self.zonelist:
+			print zone
+			ts = self.bdm.download_dataframe(template, dataType, zone, beginTime, endTime)
+			areas[zone] = float(ts['value'][0])
+
+		self.generaldb.store('area', areas)
+
+	def collect_power(self, forceFlag):
+		if not self.proceed_check(self.generaldb, 'zone_energy_per_month', forceFlag):
+			return None
+
+		defaultZoneEnergy = dict()
+		for i in range(12,32): # dec/2013 is 12, jul/2015 is 31
+			defaultZoneEnergy[i] = 0
+
+		zoneEnergies = dict()
+		zoneWeekdayEnergies = dict()
+		zoneWeekendEnergies = dict()
+
+		for zone in self.zonelist:
+			print zone
+			zoneEnergy = defaultZoneEnergy
+			zoneWeekendEnergy = defaultZoneEnergy
+			zoneWeekdayEnergy = defaultZoneEnergy
+			zonePower = self.bdm.download_dataframe('HVAC Zone Power', 'total_zone_power', zone, self.beginTime, self.endTime)
+			if len(zonePower)<=0:
+				zoneEnergies[zone] = zoneEnergy
+				continue
+			zonePowerIter = zonePower.iterrows()
+			prevTP = zonePowerIter.next()[1]['timestamp']
+			for row in zonePower.iterrows():
+				tp = row[1]['timestamp']
+				val = row[1]['value']
+				monthCnt = (tp.year-2013)*12 + tp.month
+				if monthCnt==11:
+					prevTP = tp
+					continue
+				if monthCnt==-11:
+					pass
+				zoneEnergy[monthCnt] += (tp-prevTP).total_seconds()*val
+				if tp.day<=4 and tp.day>=0 and tp.hour>=7 and tp.hour<=18:
+					if prevTP.hour<7 or prevTP.hour>18:
+						prevTP = tp.replace(hour=7,minute=0,second=0)
+					zoneWeekdayEnergy[monthCnt] += (tp-prevTP).total_seconds()*val
+				elif tp.day>=5 or tp.hour>19 or tp.hour<6:
+					if prevTP.hour<19 and prevTP.day<5:
+						prevTP = tp.replace(hour=19, minute=0, second=0)
+					zoneWeekendEnergy[monthCnt] += (tp-prevTP).total_seconds()*val
+				prevTP = tp
+			zoneEnergies[zone] = zoneEnergy
+			zoneWeekendEnergies[zone] = zoneWeekendEnergy
+			zoneWeekdayEnergies[zone] = zoneWeekdayEnergy
+
+		self.generaldb.store('zone_energy_per_month', zoneEnergies)
+		self.generaldb.store('zone_weekend_energy_per_month', zoneWeekendEnergies)
+		self.generaldb.store('zone_weekday_energy_per_month', zoneWeekdayEnergies)
+	
 	def collect_all_data(self, forceFlag):
 #		forceFlag = True
 		GenieFlag = True
@@ -491,6 +804,7 @@ class collector():
 
 		self.collect_temp_vs_setpnt(forceFlag, ThermFlag)
 		print "Finish collecting Thermostat's zone temperature information at warm coold adjust points"
+		self.collect_power(forceFlag)
 		
 		self.collect_occ_samples(forceFlag)
 		print "FInish collect6ing samples of OCC to compare calendar"

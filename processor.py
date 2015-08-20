@@ -19,8 +19,10 @@ class processor:
 	bdm = None
 	zonelist = None
 	geniezonelist = None
+	notgenielist = None
 	genieprocdb = None
 	thermprocdb = None
+	generaldb = None
 	genierawdb = None
 	thermrawdb = None
 	beginTime = datetime(2013,12,1,0,0,0)
@@ -38,6 +40,11 @@ class processor:
 		self.thermrawdb = localdb('thermraws.shelve')
 		self.genieprocdb = localdb('genieprocessed.shelve')
 		self.thermprocdb = localdb('thermprocessed.shelve')
+		self.generaldb = localdb('general.shelve')
+		self.notgenielist = list()
+		for zone in self.zonelist:
+			if zone not in self.geniezonelist:
+				self.notgenielist.append(zone)
 	
 	def proceedCheck(self, db, tag, forceFlag):
 		if not forceFlag:
@@ -46,10 +53,6 @@ class processor:
 			else:
 				return True
 		else:
-			try:
-				db.remove(tag)
-			except:
-				pass
 			return True
 	
 	def csv2list(self, filename):
@@ -59,7 +62,6 @@ class processor:
 			for row in reader:
 				outputList.append(row[0])
 		return outputList
-
 
 	def proc_genie_setdev(self, forceFlag):
 		db = self.genieprocdb
@@ -89,70 +91,131 @@ class processor:
 				setpntdevHour[tp.hour].append(setdiff)
 				setpntdevMonth[(tp.year-2013)*12 + tp.month].append(setdiff)
 
+		for zone in self.geniezonelist:
+			if not zone in setpntdevZone.keys():
+				setpntdevZone[zone] = 0
+
 		db.store('setpoint_dev_zone', setpntdevZone)
 		db.store('setpoint_dev_hour', setpntdevHour)
 		db.store('setpoint_dev_month', setpntdevMonth)
 	
 	def proc_genie_setpnt_diff(self, forceFlag, genieFlag):
 		if genieFlag:
-			db = self.genieprocdb
+			procdb = self.genieprocdb
 			rawdb = self.genierawdb
 			setpntDiffs = rawdb.load('setpoint_diff_per_zone')
+			localZoneList = self.geniezonelist
 		else:
-			db = self.thermprocdb
+			procdb = self.thermprocdb
 			rawdb = self.thermrawdb
 			setpntDiffs = rawdb.load('wcad_diff_per_zone')
+			localZoneList = self.zonelist
 
 		setpntDiffZone = defaultdict(list)
 		setpntDiffMonth= defaultdict(list)
 		setpntDiffHour = defaultdict(list)
+		for zone in localZoneList:
+			setpntDiffZone[zone] = []
+
 		for zone, setpntDiff in setpntDiffs.iteritems():
-			for row in setpntList.iterrows():
+			for row in setpntDiff.iterrows():
 				tp = row[1]['timestamp']
 				val = row[1]['value']
-				setpntDiffZone[zone].append(setdiff)
-				setpntDiffMonth[(tp.year-2013)*12+tp.month].append(setdiff)
-				setpnfDiffHour[tp.hour].append(setdiff)
+				setpntDiffZone[zone].append(val)
+				setpntDiffMonth[(tp.year-2013)*12+tp.month].append(val)
+				setpntDiffHour[tp.hour].append(val)
 
 		if genieFlag:
-			db.store('setpoint_diff_per_zone', setpntDiffZone)
-			db.store('setpoint_diff_per_month', setpntDiffMonth)
-			db.store('setpoint_diff_per_hour', setpntDiffHour)
+			procdb.store('setpoint_diff_per_zone', setpntDiffZone)
+			procdb.store('setpoint_diff_per_month', setpntDiffMonth)
+			procdb.store('setpoint_diff_per_hour', setpntDiffHour)
 		else:
-			db.store('wcad_diff_per_zone', setpntDiffZone)
-			db.store('wcad_diff_per_month', setpntDiffMonth)
-			db.store('wcad_diff_per_hour', setpntDiffHour)
-	
-	def proc
-
+			procdb.store('wcad_diff_per_zone', setpntDiffZone)
+			procdb.store('wcad_diff_per_month', setpntDiffMonth)
+			procdb.store('wcad_diff_per_hour', setpntDiffHour)
 	
 	def proc_therm_setdev(self, forceFlag):
-		if not self.proceedCheck(self.thermprocdb, 'wcad_dev_zone', forceFlag) and not self.proceedCheck(self.thermprocdb, 'setpoint_dev_hour', forceFlag) and not self.proceedCheck(self.thermprocdb, 'setpoint_dev_mont'):
-			return None
 		wcads = self.thermrawdb.load('wcad_per_zone_filtered')
 		wcadDevZone = defaultdict(list)
 		wcadDevMonth = defaultdict(list)
 		wcadDevHour = defaultdict(list)
-		for zone in wcads.keys():
-			wcadList = wcads[zone]
-			for i in range(0,len(wcadList)):
-				tp = wcadList['timestamp'][i]
-				wcad = wcadList['value'][i]
-				wcadDevZone[zone].append(wcad)
-				wcadDevHour[tp.hour].append(wcad)
-				wcadDevMonth[(tp.year-2013)*12+tp.month].append(wcad)
+
+		#for zone in self.notgenielist:
+		for zone in self.zonelist:
+			wcadDevZone[zone] = list()
+		for hour in range(0,24):
+			wcadDevHour[hour] = list()
+		for month in range(12,32):
+			wcadDevMonth[month] = list()
+		#for zone in wcads.keys():
+		#for zone in self.notgenielist:
+		for zone in self.zonelist:
+			if zone in wcads.keys():
+				wcadList = wcads[zone]
+				for i in range(0,len(wcadList)):
+					tp = wcadList['timestamp'][i]
+					wcad = wcadList['value'][i]
+					wcadDevZone[zone].append(wcad)
+					wcadDevHour[tp.hour].append(wcad)
+					wcadDevMonth[(tp.year-2013)*12+tp.month].append(wcad)
 
 		self.thermprocdb.store('setpoint_dev_zone', wcadDevZone)
 		self.thermprocdb.store('setpoint_dev_hour', wcadDevHour)
 		self.thermprocdb.store('setpoint_dev_month', wcadDevMonth)
 
+	def proc_setpoint_energy(self, forceFlag, genieFlag):
+		if genieFlag:
+			db = self.genieprocdb
+			rawdb = self.genierawdb
+			localZoneList = self.geniezonelist
+		else:
+			db = self.thermprocdb
+			rawdb = self.thermrawdb
+			#localZoneList = self.zonelist
+			localZoneList = self.notgenielist
+		
+		setpntEnergy= rawdb.load('setpoint_energy')
+		totalEnergyMonth = defaultdict(float)
+		totalEnergyHour = defaultdict(float)
+		totalEnergyZone = defaultdict(float)
+		# List init
+		for zone in localZoneList:
+			totalEnergyZone[zone] = 0
+		for month in range(12,32):
+			totalEnergyMonth[month] = 0
+		for hour in range(0,24):
+			totalEnergyHour[hour] = 0
+
+		for row in setpntEnergy:
+			zone = row[0]
+			tp = row[1]
+			beforeEnergy = row[2]
+			afterEnergy = row[3]
+			if zone=='3242' or not zone in localZoneList:
+				continue
+			if (tp.year-2013)*12+tp.month == 32:
+				continue
+			localMonth = (tp.year-2013)*12+tp.month
+			energyDiff  = afterEnergy - beforeEnergy
+			totalEnergyMonth[localMonth] += energyDiff
+			totalEnergyZone[zone] += energyDiff
+			totalEnergyHour[tp.hour] += energyDiff 
+
+		sortedTotalEnergyZone = OrderedDict(sorted(totalEnergyZone.items(), key=operator.itemgetter(1)))
+		db.store('setpnt_energy_diff_zone', sortedTotalEnergyZone)
+		db.store('setpnt_energy_diff_month', totalEnergyMonth)
+		db.store('setpnt_energy_diff_hour', totalEnergyHour)
+
 	def proc_energy(self, forceFlag, genieFlag):
 		if genieFlag:
 			db = self.genieprocdb
 			rawdb = self.genierawdb
+			localZoneList = self.geniezonelist
 		else:
 			db = self.thermprocdb
 			rawdb = self.thermrawdb
+			localZoneList = self.notgenielist
+			#localZoneList = self.zonelist
 
 		if not self.proceedCheck(db,'energy_save_month', forceFlag) and not self.proceedCheck(db, 'energy_save_zone', foceFlag) and not self.proceedCheck(db,'energy_waste_month', forceFlag) and not self.proceedCheck(db, 'energy_waste_zone', foceFlag):
 			return None
@@ -163,34 +226,40 @@ class processor:
 		energySaveZone = defaultdict(float)
 		energyWasteMonth = defaultdict(float)
 		energyWasteZone = defaultdict(float)
+		totalEnergyMonth = defaultdict(float)
+		totalEnergyZone = defaultdict(float)
 
 		for row in actuateEnergy+setpntEnergy:
 			zone = row[0]
 			tp = row[1]
 			beforeEnergy = row[2]
 			afterEnergy = row[3]
+			if zone not in localZoneList:
+				continue
 			if zone == '3242':
 				continue
 			if (tp.year-2013)*12+tp.month == 32:
 				continue
+			localMonth = (tp.year-2013)*12+tp.month
 			if afterEnergy>beforeEnergy:
-				energyWasteMonth[(tp.year-2013)*12+tp.month] += afterEnergy - beforeEnergy
+				energyWasteMonth[localMonth] += afterEnergy - beforeEnergy
 				energyWasteZone[zone] += afterEnergy - beforeEnergy
+
 			else:
 				energySaveMonth[(tp.year-2013)*12+tp.month] -= afterEnergy - beforeEnergy
 				energySaveZone[zone] -= afterEnergy - beforeEnergy
-		
-#		for row in setpntEnergy:
-#			zone = row[0]
-#			tp = row[1]
-#			beforeEnergy = row[2]
-#			afterEnergy = row[2]
-#			if afterEnergy>beforeEnergy:
-#				energyWasteMonth[(tp.year-2013)*12+tp.month] += afterEnergy - beforeEnergy
-#				energyWasteZone[zone] += afterEnergy - beforeEnergy
-#			else:
-#				energySaveMonth[(tp.year-2013)*12+tp.month] -= afterEnergy - beforeEnergy
-#				energySaveZone[zone] -= afterEnergy - beforeEnergy
+			totalEnergyMonth[localMonth] += afterEnergy - beforeEnergy
+			totalEnergyZone[zone] += afterEnergy - beforeEnergy
+
+		for zone in localZoneList:
+			if not zone in energySaveZone:
+				energySaveZone[zone] = 0
+			if not zone in energyWasteZone:
+				energyWasteZone[zone] = 0
+			if not zone in totalEnergyZone:
+				totalEnergyZone[zone] = 0
+
+		sortedTotalEnergyZone = OrderedDict(sorted(totalEnergyZone.items(), key=operator.itemgetter(1)))
 		sortedEnergySaveZone = OrderedDict(sorted(energySaveZone.items(), key=operator.itemgetter(1)))
 		sortedEnergyWasteZone = dict()
 		for zone in sortedEnergySaveZone.keys():
@@ -205,31 +274,94 @@ class processor:
 		#db.store('energy_waste_zone', energyWasteZone)
 		db.store('energy_save_zone', sortedEnergySaveZone)
 		db.store('energy_waste_zone', sortedEnergyWasteZone)
+		db.store('energy_diff_zone', sortedTotalEnergyZone)
+		db.store('energy_diff_month', totalEnergyMonth)
 
 	def proc_freq(self, forceFlag, genieFlag, dataType):
 		if genieFlag:
-			db = self.genieprocdb
+			procdb = self.genieprocdb
 			rawdb = self.genierawdb
+			localZoneList = self.geniezonelist
+			if dataType=='actuate':
+				#print "Wrong function is used to claculate Genie\'s actuate frequency"
+				#print "Please use proc_genie_actu_freq"
+				print "Should I use proc_genie_actu_freq??"
+#				return None
 		else:
-			db = self.thermprocdb
+#			localZoneList = self.notgenielist
+			localZoneList = self.zonelist
+			procdb = self.thermprocdb
 			rawdb = self.thermrawdb
 		if dataType == 'wcad':
 			dataDict = rawdb.load(dataType+"_per_zone_filtered")
 		else:
 			dataDict = rawdb.load(dataType+"_per_zone")
 		
+		# Init dicts.
 		monthDict = defaultdict(int)
 		hourDict = defaultdict(int)
 		zoneDict = defaultdict(int)
+		notgenieMonthDict = defaultdict(int)
+		genieMonthDict = defaultdict(int) # This is for thermostats data in genie zones.
+		notgenieHourDict = defaultdict(int)
+		genieHourDict = defaultdict(int) # This is for thermostats data in genie zones.
+		for i in range(12,32):
+			monthDict[i] = 0
+			genieMonthDict[i] = 0
+			notgenieMonthDict[i] = 0
+		for zone in localZoneList:
+			zoneDict[zone] = 0
+		for hour in range(0,24):
+			hourDict[hour] = 0
+			genieHourDict[hour] = 0
+			notgenieHourDict[hour] = 0
 		for zone, data in dataDict.iteritems():
+			if not zone in localZoneList:
+				continue
 			for tp in data['timestamp']:
 				monthDict[(tp.year-2013)*12+tp.month] += 1
 				hourDict[tp.hour] += 1
+				if zone in self.geniezonelist:
+					genieMonthDict[(tp.year-2013)*12+tp.month] += 1
+					genieHourDict[tp.hour] += 1
+				else:
+					notgenieMonthDict[(tp.year-2013)*12+tp.month] += 1
+					notgenieHourDict[tp.hour] += 1
 				zoneDict[zone] += 1
 
-		db.store(dataType+'_per_month', monthDict)
-		db.store(dataType+'_per_hour', hourDict)
-		db.store(dataType+'_per_zone', zoneDict)
+		procdb.store(dataType+'_per_month', monthDict)
+		procdb.store(dataType+'_per_hour', hourDict)
+		procdb.store(dataType+'_per_zone', zoneDict)
+		if not genieFlag:
+			procdb.store('genie_'+dataType+'_per_month', genieMonthDict)
+			procdb.store('genie_'+dataType+'_per_hour', genieHourDict)
+			procdb.store('notgenie_'+dataType+'_per_month', notgenieMonthDict)
+			procdb.store('notgenie_'+dataType+'_per_hour', notgenieHourDict)
+
+	
+	def proc_total_count(self, forceFlag):
+		# TODO: IMPLEMENT THIS!!
+		# calculating entire energy consumptions
+		zoneEnergies = self.generaldb.load('zone_energy_per_month')
+		genieEnergies = defaultdict(float)
+		thermEnergies = defaultdict(float)
+		genieTotalEnergy = 0
+		thermTotalEnergy = 0
+		for zone in self.zonelist:
+			if zone in self.geniezonelist:
+				for month, energy in zoneEnergies[zone].iteritems():
+					genieEnergies[month] += energy
+					genieTotalEnergy += energy
+			else:
+				for month, energy in zoneEnergies[zone].iteritems():
+					thermEnergies[month] += energy
+					thermTotalEnergy += energy
+
+		self.generaldb.store('genie_zone_energy_per_month', genieEnergies)
+		self.generaldb.store('therm_zone_energy_per_month', thermEnergies)
+		self.generaldb.store('genie_total_energy', genieTotalEnergy)
+		self.generaldb.store('therm_total_energy', thermTotalEnergy)
+		
 	
 	def process_all_data(self):
 		print "Start processing all data"
@@ -249,6 +381,9 @@ class processor:
 		#2-2
 		self.proc_energy(ForceFlag, ThermFlag)
 		print "Finish processing thermostat energy analysis"
+		
+		self.proc_setpoint_energy(ForceFlag, GenieFlag)
+		self.proc_setpoint_energy(ForceFlag, ThermFlag)
 
 		#3-1
 		self.proc_freq(ForceFlag, GenieFlag, 'actuate')
@@ -256,6 +391,7 @@ class processor:
 		self.proc_freq(ForceFlag, ThermFlag, 'actuate')
 		self.proc_freq(ForceFlag, ThermFlag, 'wcad')
 	
-		self.proc_genie_setpnt_diff(forceFlag, GenieFlag):
-		self.proc_genie_setpnt_diff(forceFlag, ThermFlag):
+		self.proc_genie_setpnt_diff(ForceFlag, GenieFlag)
+		self.proc_genie_setpnt_diff(ForceFlag, ThermFlag)
 	
+		self.proc_total_count(ForceFlag)
