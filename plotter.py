@@ -7,6 +7,7 @@ import matplotlib.colors as col
 import matplotlib.cm as cm
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
 #class plotter:
 # dataSeries (2-dimensional np.ndarray), figSize (tuple, length=2) -> fig
@@ -35,8 +36,7 @@ def save_fig(fig, name):
 # dataSeries[1] and dataSereis[2] should be stacked on same bar
 # dataSeries[3] and dataSereis[4] should be stacked on same bar
 # Other details should be implemented in inheritor
-def plot_multiple_stacked_bars(dataSeries, figSizeIn, stackNum, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None):
-	#fig = plt.figure(figsize=figSizeIn)
+def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, ylim=None, linewidth=None):
 	barNum = len(dataSeries)/(stackNum+1)
 	totalBlockWidth = 0.8
 	#oneBlockWidth = float(0.5/float(barNum))
@@ -64,7 +64,7 @@ def plot_multiple_stacked_bars(dataSeries, figSizeIn, stackNum, xlabel=None, yla
 			dataLabelIdx += 1
 		else:
 			dataLabel = None
-		bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)], yerr=std, width = oneBlockWidth, align='center', color=color, label=dataLabel))
+		bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)], yerr=std, width = oneBlockWidth, align='center', color=color, label=dataLabel, linewidth=linewidth))
 		#plt.bar(xpos, dataSeries[barIdx*stackNum], yerr=std, width = oneBlockWidth, align='center')
 		offset = dataSeries[barIdx]
 		for stackIdx in range(1,stackNum+1):
@@ -82,12 +82,14 @@ def plot_multiple_stacked_bars(dataSeries, figSizeIn, stackNum, xlabel=None, yla
 				dataLabelIdx += 1
 			else:
 				dataLabel = None
-			bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)+stackIdx], yerr=std, width=oneBlockWidth, bottom=offset, align='center', color=color, label=dataLabel))
+			bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)+stackIdx], yerr=std, width=oneBlockWidth, bottom=offset, align='center', color=color, label=dataLabel, linewidth=linewidth))
 			#plt.bar(xpos, dataSeries[barIdx*stackNum+stackIdx], yerr=std, width=oneBlockWidth, bottom=offset, align='center')
 			offset += dataSeries[barIdx*(stackNum+1)+stackIdx]
 	
 	#plt.xlim(x[0]-1,x[len(x)-1]+1)
 	axis.set_xlim(x[0]-1,x[len(x)-1]+1)
+	if ylim:
+		axis.set_ylim(ylim)
 	if ylabel:
 	#	plt.ylabel(ylabel, labelpad=-2)
 		axis.set_ylabel(ylabel, labelpad=-2)
@@ -96,7 +98,7 @@ def plot_multiple_stacked_bars(dataSeries, figSizeIn, stackNum, xlabel=None, yla
 		axis.set_xlabel(xlabel, labelpad=-2)
 	
 	if dataLabels: 
-		plt.legend(handles=bars, fontsize=7, loc='best')
+		axis.legend(handles=bars, fontsize=7, loc='best')
 	if xtickTag:
 		if not xtickRange:
 			xtickRange = np.arange(0,len(xtickTag))
@@ -111,7 +113,6 @@ def plot_multiple_stacked_bars(dataSeries, figSizeIn, stackNum, xlabel=None, yla
 	if title:
 		#plt.title(title)
 		axis.set_title(title, y=1.08)
-#	plt.show()
 	return fig
 
 def plot_up_down_bars(upData, downData, figSizeIn, xlabel, ylabel, title=None):
@@ -232,3 +233,15 @@ def plot_multiple_2dline(x, ys, xlabel=None, ylabel=None, xtick=None, xtickLabel
 #		plt.legend(handles=plotList, fontsize=7)
 
 	return fig
+
+def plot_yy_bar(dataSeries, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, yerrs=None, ylim=None, linewidth=None):
+	pass
+	
+def make_month_tag():
+	monthTags = list()
+	basetime = datetime(2013,12,1)
+	for i in range(0,19):
+		monthTags.append(basetime.strftime('%b/%y'))
+		basetime += timedelta(days=31)
+
+	return monthTags

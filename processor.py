@@ -12,6 +12,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
 import operator
+from pytz import timezone
 		
 
 class processor:
@@ -26,9 +27,10 @@ class processor:
 	genierawdb = None
 	thermrawdb = None
 	beginTime = datetime(2013,12,1,0,0,0)
-	endTime = datetime(2015,7,31,23,0,0)
+	endTime = datetime(2015,6,25,23,0,0)
 	confrooms = ['2109', '2217', '3109', '3127', '4109', '4217']
 	normrooms = ['2150']
+	pst = timezone('US/Pacific')
 
 	def __init__(self):
 		self.bdm = bdmanager()
@@ -45,6 +47,9 @@ class processor:
 		for zone in self.zonelist:
 			if zone not in self.geniezonelist:
 				self.notgenielist.append(zone)
+		self.beginTime = self.pst.localize(datetime(2013,12,1,0,0,0),is_dst=True)
+		self.endTime = self.pst.localize(datetime(2015,6,25,0,0,0),is_dst=True)
+		
 	
 	def proceedCheck(self, db, tag, forceFlag):
 		if not forceFlag:
@@ -98,6 +103,72 @@ class processor:
 		db.store('setpoint_dev_zone', setpntdevZone)
 		db.store('setpoint_dev_hour', setpntdevHour)
 		db.store('setpoint_dev_month', setpntdevMonth)
+
+	def proc_genie_weighted_setpnt_dev(self, forceFlag, genieFlag):
+		if genieFlag:
+			rawdb = self.genierawdb
+			procdb = self.genieprocdb
+			setpntDict = rawdb.load('setpoint_per_zone')
+			localZoneList = self.geniezonelist
+		else:
+			rawdb = self.thermrawdb
+			procdb = self.thermprocdb
+			setpntDict = rawdb.load('wcad_per_zone')
+			localZoneList = self.zonelist
+
+		setpntDevDict = dict()
+		commonsetpntTemplate = 'HVAC Zone Information'
+		commonsetpntSensorpoint = 'default_common_setpoint'
+		commonsetpntBeginTime = datetime(2013,10,1,0,0,0)
+		commonsetpntEndTime = datetime(2014,10,1,0,0,0)
+
+		for zone in localZoneList:
+			print zone
+			try:
+				setpnts = setpntDict[zone]	
+			except:
+				setpnts = []
+			if len(setpnts)==0:
+				if genieFlag:
+					commonsetpnt = self.bdm.download_dataframe(commonsetpntTemplate, commonsetpntSensorpoint, zone, commonsetpntBeginTime, commonsetpntEndTime)
+					if len(commonsetpnt)>0:
+						commonsetpnt = commonsetpnt['value'][0]
+						setpntDevDict[zone] = [commonsetpnt,0]
+				else:
+					setpntDevDict[zone] = [0,0]
+				continue
+			total=0.0
+			sqTotal = 0.0
+			setpntIter = setpnts.iterrows()
+			prevRow = setpntIter.next()
+			while prevRow[1]['timestamp'] < self.beginTime:
+				prevRow = setpntIter.next()
+			currVal = prevRow[1]['value']
+			dt = (prevRow[1]['timestamp']-self.beginTime).total_seconds()
+			total += dt * currVal
+			sqTotal += dt * currVal * currVal
+			for row in setpntIter:
+				if row[1]['timestamp']>=self.endTime:
+					break
+				currVal = row[1]['value']
+				dt = (row[1]['timestamp']-prevRow[1]['timestamp']).total_seconds()
+				total += dt * currVal 
+				sqTotal += dt * currVal * currVal
+				prevRow = row
+			dt = (self.endTime-prevRow[1]['timestamp']).total_seconds()
+			val = prevRow[1]['value']
+			total += dt * val
+			sqTotal += dt * val * val
+			totalDT = (self.endTime-self.beginTime).total_seconds()
+			avg = total / totalDT
+			std = sqTotal/totalDT - avg*avg
+			setpntDevDict[zone] = [avg, std]
+
+		if genieFlag:
+			procdb.store('weighted_setpoint_dev_zone', setpntDevDict)
+		else:
+			procdb.store('weighted_wcad_dev_zone', setpntDevDict)
+
 	
 	def proc_genie_setpnt_diff(self, forceFlag, genieFlag):
 		if genieFlag:
@@ -145,7 +216,7 @@ class processor:
 			wcadDevZone[zone] = list()
 		for hour in range(0,24):
 			wcadDevHour[hour] = list()
-		for month in range(12,32):
+		for month in range(12,31):
 			wcadDevMonth[month] = list()
 		#for zone in wcads.keys():
 		#for zone in self.notgenielist:
@@ -181,7 +252,7 @@ class processor:
 		# List init
 		for zone in localZoneList:
 			totalEnergyZone[zone] = 0
-		for month in range(12,32):
+		for month in range(12,31):
 			totalEnergyMonth[month] = 0
 		for hour in range(0,24):
 			totalEnergyHour[hour] = 0
@@ -193,7 +264,7 @@ class processor:
 			afterEnergy = row[3]
 			if zone=='3242' or not zone in localZoneList:
 				continue
-			if (tp.year-2013)*12+tp.month == 32:
+			if (tp.year-2013)*12+tp.month == 31:
 				continue
 			localMonth = (tp.year-2013)*12+tp.month
 			energyDiff  = afterEnergy - beforeEnergy
@@ -206,7 +277,7 @@ class processor:
 		db.store('setpnt_energy_diff_month', totalEnergyMonth)
 		db.store('setpnt_energy_diff_hour', totalEnergyHour)
 
-	def proc_energy(self, forceFlag, genieFlag):
+	def proc_energy_change(self, forceFlag, genieFlag):
 		if genieFlag:
 			db = self.genieprocdb
 			rawdb = self.genierawdb
@@ -238,7 +309,7 @@ class processor:
 				continue
 			if zone == '3242':
 				continue
-			if (tp.year-2013)*12+tp.month == 32:
+			if (tp.year-2013)*12+tp.month == 31:
 				continue
 			localMonth = (tp.year-2013)*12+tp.month
 			if afterEnergy>beforeEnergy:
@@ -305,7 +376,7 @@ class processor:
 		genieMonthDict = defaultdict(int) # This is for thermostats data in genie zones.
 		notgenieHourDict = defaultdict(int)
 		genieHourDict = defaultdict(int) # This is for thermostats data in genie zones.
-		for i in range(12,32):
+		for i in range(12,31):
 			monthDict[i] = 0
 			genieMonthDict[i] = 0
 			notgenieMonthDict[i] = 0
@@ -361,7 +432,51 @@ class processor:
 		self.generaldb.store('therm_zone_energy_per_month', thermEnergies)
 		self.generaldb.store('genie_total_energy', genieTotalEnergy)
 		self.generaldb.store('therm_total_energy', thermTotalEnergy)
-		
+
+	def proc_energy(self, forceFlag, genieFlag):
+		weekendEnergies = self.generaldb.load('zone_weekend_energy_per_month')
+		weekdayEnergies = self.generaldb.load('zone_weekday_energy_per_month')
+		area = self.generaldb.load('area')
+
+		if genieFlag:
+			localZoneList = self.geniezonelist
+			procdb = self.genieprocdb
+		else:
+			localZoneList = self.notgenielist
+			procdb = self.thermprocdb
+
+		for zone, energies in weekendEnergies.iteritems():
+			for month, energy in energies.iteritems():
+				if month>=31:
+					continue
+				energies[month] = energy / area[zone]
+			weekendEnergies[zone] = energies
+		for zone, energies in weekdayEnergies.iteritems():
+			for month, energy in energies.iteritems():
+				if month>=31:
+					continue
+				energies[month] = energy / area[zone]
+			weekdayEnergies[zone] = energies
+
+		for zone in weekendEnergies.keys():
+			if not zone in localZoneList:
+				del weekendEnergies[zone]
+		for zone in weekdayEnergies.keys():
+			if not zone in localZoneList:
+				del weekdayEnergies[zone]
+
+		endArray = pd.DataFrame(weekendEnergies)
+		dayArray = pd.DataFrame(weekdayEnergies)
+
+		endAvgs = np.mean(endArray, axis=1)
+		dayAvgs = np.mean(dayArray, axis=1)
+		endStds = np.std(endArray, axis=1)
+		dayStds = np.std(dayArray, axis=1)
+
+		procdb.store('zone_weekend_energy_per_month_avg', endAvgs)
+		procdb.store('zone_weekday_energy_per_month_avg', dayAvgs)
+		procdb.store('zone_weekend_energy_per_month_std', endStds)
+		procdb.store('zone_weekday_energy_per_month_std', dayStds)
 	
 	def process_all_data(self):
 		print "Start processing all data"
@@ -376,10 +491,10 @@ class processor:
 		print "Finish processing thermostat setpoint deviation"
 
 		#2-1
-		self.proc_energy(ForceFlag, GenieFlag)
+		self.proc_energy_change(ForceFlag, GenieFlag)
 		print "Finish processing genie energy analysis"
 		#2-2
-		self.proc_energy(ForceFlag, ThermFlag)
+		self.proc_energy_change(ForceFlag, ThermFlag)
 		print "Finish processing thermostat energy analysis"
 		
 		self.proc_setpoint_energy(ForceFlag, GenieFlag)
@@ -394,4 +509,10 @@ class processor:
 		self.proc_genie_setpnt_diff(ForceFlag, GenieFlag)
 		self.proc_genie_setpnt_diff(ForceFlag, ThermFlag)
 	
+		self.proc_energy(ForceFlag, GenieFlag)
+		self.proc_energy(ForceFlag, ThermFlag)
+	
 		self.proc_total_count(ForceFlag)
+	
+		self.proc_genie_weighted_setpnt_dev(ForceFlag, GenieFlag)
+		self.proc_genie_weighted_setpnt_dev(ForceFlag, ThermFlag)
