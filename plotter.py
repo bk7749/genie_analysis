@@ -8,6 +8,7 @@ import matplotlib.cm as cm
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+import math
 
 #class plotter:
 # dataSeries (2-dimensional np.ndarray), figSize (tuple, length=2) -> fig
@@ -22,7 +23,7 @@ from datetime import datetime, timedelta
 
 def save_fig(fig, name):
 	pp = PdfPages(name)
-	pp.savefig(fig, bbox_inches='tight')
+	pp.savefig(fig, bbox_inches='tight', pad_inches=0, dpi=300)
 	pp.close()
 
 
@@ -36,7 +37,7 @@ def save_fig(fig, name):
 # dataSeries[1] and dataSereis[2] should be stacked on same bar
 # dataSeries[3] and dataSereis[4] should be stacked on same bar
 # Other details should be implemented in inheritor
-def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, ylim=None, linewidth=None):
+def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, ylim=None, linewidth=0.2, xtickRotate=None, legendLoc='best', hatchSeries=None, eclist=None):
 	barNum = len(dataSeries)/(stackNum+1)
 	totalBlockWidth = 0.8
 	#oneBlockWidth = float(0.5/float(barNum))
@@ -48,12 +49,10 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 	bars = list()
 	colorIdx = 0
 	dataLabelIdx = 0
+	hatchLabelIdx = 0
+	ecolorIdx = 0
 	for barIdx in range(0,barNum):
 		xpos = x-totalBlockWidth/2.0 + oneBlockWidth*barIdx + oneBlockWidth/2.0
-		if stdSeries:
-			std = stdSeries[barIdx*(stackNum+1)]
-		else:
-			std = None
 		if clist:
 			color = clist[colorIdx]
 			colorIdx += 1
@@ -64,8 +63,21 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 			dataLabelIdx += 1
 		else:
 			dataLabel = None
-		bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)], yerr=std, width = oneBlockWidth, align='center', color=color, label=dataLabel, linewidth=linewidth))
-		#plt.bar(xpos, dataSeries[barIdx*stackNum], yerr=std, width = oneBlockWidth, align='center')
+		if hatchSeries != None:
+			hatch = hatchSeries[hatchLabelIdx]
+			hatchLabelIdx += 1
+		else:
+			hatch=None
+		if eclist != None:
+			ecolor = eclist[ecolorIdx]
+			ecolorIdx +=1 
+		else:
+			ecolor = None
+		#bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)], yerr=std, width = oneBlockWidth, align='center', color=color, label=dataLabel, linewidth=linewidth, hatch=hatch, ecolor=ecolor))
+		bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)], width = oneBlockWidth, align='center', color=color, label=dataLabel, linewidth=linewidth, hatch=hatch))
+		if stdSeries:
+			std = stdSeries[barIdx*(stackNum+1)]
+			axis.errorbar(xpos, dataSeries[barIdx*(stackNum+1)], yerr=std, ecolor=ecolor,elinewidth=0.3, capthick=0.3, fmt=None, capsize=2)
 		offset = dataSeries[barIdx]
 		for stackIdx in range(1,stackNum+1):
 			if stdSeries:
@@ -82,7 +94,17 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 				dataLabelIdx += 1
 			else:
 				dataLabel = None
-			bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)+stackIdx], yerr=std, width=oneBlockWidth, bottom=offset, align='center', color=color, label=dataLabel, linewidth=linewidth))
+			if hatchSeries != None:
+				hatch = hatchSeries[hatchLabelIdx]
+				hatchLabelIdx += 1
+			else:
+				hatch=None
+			if eclist != None:
+				ecolor = eclist[ecolorIdx]
+				ecolorIdx +=1 
+			else:
+				ecolor = None
+			bars.append(axis.bar(xpos, dataSeries[barIdx*(stackNum+1)+stackIdx], yerr=std, width=oneBlockWidth, bottom=offset, align='center', color=color, label=dataLabel, linewidth=linewidth, hatch=hatch, ecolor=ecolor))
 			#plt.bar(xpos, dataSeries[barIdx*stackNum+stackIdx], yerr=std, width=oneBlockWidth, bottom=offset, align='center')
 			offset += dataSeries[barIdx*(stackNum+1)+stackIdx]
 	
@@ -91,25 +113,29 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 	if ylim:
 		axis.set_ylim(ylim)
 	if ylabel:
-	#	plt.ylabel(ylabel, labelpad=-2)
-		axis.set_ylabel(ylabel, labelpad=-2)
+		#axis.set_ylabel(ylabel, labelpad=-2)
+		axis.set_ylabel(ylabel)
 	if xlabel:
 	#	plt.xlabel(xlabel, labelpad=-2)
-		axis.set_xlabel(xlabel, labelpad=-2)
+		#axis.set_xlabel(xlabel, labelpad=-1)
+		axis.set_xlabel(xlabel)
 	
 	if dataLabels: 
-		axis.legend(handles=bars, fontsize=7, loc='best')
-	if xtickTag:
+		axis.legend(handles=bars, fontsize=8, loc=legendLoc)
+	if xtickTag != None:
 		if not xtickRange:
-			xtickRange = np.arange(0,len(xtickTag))
+			xtickRange = np.arange(0,len(dataSeries[0])+1, math.floor(float(len(dataSeries[0])/(len(xtickTag)-1))))
+			#xtickRange = np.arange(0,len(xtickTag))
+		if xtickRotate == None:
+			xtickRotate = 70
 		#plt.xticks(xtickRange, xtickTag, fontsize=10, rotation=70)
 		axis.set_xticks(xtickRange)
-		axis.set_xticklabels(xtickTag, fontsize=10, rotation=70)
+		axis.set_xticklabels(xtickTag, fontsize=8, rotation=xtickRotate)
 	if ytickTag:
 		if not ytickRange:
-			ytickRange = np.arange(0,len(ytickRag))
+			ytickRange = np.arange(0,len(ytickTag))
 		#plt.yticks(ytickRange, ytickTag, fontsize=10)
-		axis.set_yticks(ytickRange, ytickTag, fontsize=10)
+		axis.set_yticks(ytickRange, ytickTag, fontsize=8)
 	if title:
 		#plt.title(title)
 		axis.set_title(title, y=1.08)
@@ -151,7 +177,7 @@ def plot_colormap(data, figSizeIn, xlabel, ylabel, cbarlabel, cmapIn, ytickRange
 	return fig
 
 def plot_colormap_upgrade(data, figSizeIn, xlabel, ylabel, cbarlabel, cmapIn, ytickRange, ytickTag, xtickRange=None, xtickTag=None, title=None, xmin=None, xmax=None, xgran=None, ymin=None, ymax=None, ygran=None):
-	if xmin:
+	if xmin != None:
 		y, x = np.mgrid[slice(ymin, ymax + ygran, ygran),
 				slice(xmin, xmax + xgran, xgran)]
 		fig = plt.figure(figsize = figSizeIn)

@@ -310,7 +310,7 @@ class collector():
 			lastRow = newData.head(1)
 		else:
 			lastRow = newData.tail(1)
-		return lastRow[0]
+		return lastRow.index[0]
 
 	
 	# Actual Cooling Setpoint: acs (DataFrame); Occupied Command: oc(DataFrame)
@@ -421,6 +421,8 @@ class collector():
 				continue
 			genieSetpointData[zone] = rawZoneSetpoint
 			setpointDiff = pd.DataFrame({'timestamp':rawZoneSetpoint['timestamp'][1:], 'value':np.diff(rawZoneSetpoint['value'], axis=0)})
+			setpointDiff = setpointDiff.drop(setpointDiff[setpointDiff['value']==0.0].index)
+			setpointDiff.index = range(0,len(setpointDiff))
 			genieSetpointDiffData[zone] = setpointDiff
 
 		avg, std = self.calc_avg_std(genieSetpointData)
@@ -452,7 +454,7 @@ class collector():
 
 		avg = np.mean(np.array(cntList))
 		std = np.std(np.array(cntList))
-		print "wcad's avg and std: ", avg, std
+#		print "wcad's avg and std: ", avg, std
 
 		for zone in self.zonelist:
 			if zone in self.errorZones or not (zone in wcads):
@@ -470,7 +472,7 @@ class collector():
 				else:
 					wcadPerZoneCnt = 1
 				prevweek = currweek
-				if wcadPerZoneCnt >= avg+std:
+				if wcadPerZoneCnt >= avg+2*std:
 					errorZoneList.append(zone)
 					break
 
@@ -490,8 +492,6 @@ class collector():
 			setpnts = list()
 			for row in wcads.iterrows():
 				tp = row[1]['timestamp']
-				if tp.year==2015 and tp.month==6 and tp.day==28:
-					pass
 				wcad = row[1]['value']
 				nearIdx = self.find_closest_left_index(tp,commonSetpnts)
 				if nearIdx != None:
@@ -503,8 +503,6 @@ class collector():
 			setpntDict[zone] = setpnt
 		return setpntDict
 					
-
-	
 	def collect_therm_wcad_per_zone(self, forceFlag):
 		if not self.proceed_check(self.thermrawdb,'wcad_per_zone', forceFlag) and not self.proceed_check(self.thermrawdb,'wcad_per_zone_filtered', forceFlag): 
 			return None
@@ -522,6 +520,11 @@ class collector():
 			if len(wcad)<=0:
 				continue
 			wcad = self.diff_list(wcad, False, False, 0.3)
+			for row in wcad.iterrows():
+				tp = row[1]['timestamp']
+				if tp>=datetime(2014,6,30,3,0,0,tzinfo=self.pst) and tp <=datetime(2014,6,30,9,0,0,0,tzinfo=self.pst):
+					wcad = wcad.drop(row[0])
+			wcad.index = range(0,len(wcad))
 			#wcad = self.diff_list(wcad, False, False, 0.5)
 			wcadData[zone] = wcad
 
@@ -534,18 +537,24 @@ class collector():
 		print wcadAvg, wcadStd
 		self.generaldb.store('therm_wcad_dev_avg', wcadAvg)
 		self.generaldb.store('therm_wcad_dev_std', wcadStd)
-		#entireSetpntData = self.wcad_to_setpnt(entireWcadDataFiltered)
+		
+		wcadDiffFiltered = dict()
+		for zone, wcad in wcadDataFiltered.iteritems():
+			wcadDiffFiltered[zone] = pd.DataFrame({'timestamp':wcad['timestamp'][1:], 'value':np.diff(wcad['value'], axis=0)})
+		
+		self.thermrawdb.store('wcad_per_zone_filtered', wcadDataFiltered)
+		self.thermrawdb.store('wcad_diff_per_zone', wcadDiffFiltered)
+
+#		entireSetpntData = self.wcad_to_setpnt(entireWcadDataFiltered)
 		#setpntAvg, setpntStd = self.calc_avg_std(entireSetpntData)
 		#print setpntAvg, setpntStd
 		#self.generaldb.store('therm_setpoint_dev_avg', setpntAvg)
 		#self.generaldb.store('therm_setpoint_dev_std', setpntStd)
 
-		wcadDiffFiltered = dict()
-		for zone, wcad in wcadDataFiltered.iteritems():
-			wcadDiffFiltered[zone] = pd.DataFrame({'timestamp':wcad['timestamp'][1:], 'value':np.diff(wcad['value'], axis=0)})
+		setpntData = self.wcad_to_setpnt(wcadDataFiltered)
+		self.thermrawdb.store('estimated_setpoint_per_zone', setpntData)
+
 			
-		self.thermrawdb.store('wcad_per_zone_filtered', wcadDataFiltered)
-		self.thermrawdb.store('wcad_diff_per_zone', wcadDiffFiltered)
 		
 	#TODO: Should be changed to use np semantics
 	def calc_energy(self, ts):
@@ -584,25 +593,29 @@ class collector():
 # Output: (list: containing energy difference information, which will be added to a list)
 # Note: 1) each prev and post ranges are time1~time2 and time3~time4 to skip weekends.
 #       2) tp should not be a weekend
-	def calc_energy_diff(self, tp, zone):
+	def calc_energy_diff(self, tp, zone, diffTime):
 		template = 'HVAC Zone Power'
 		sensorpoint = 'total_zone_power'
-		if type(tp)==str:
-			pass
-		prevTime1 = tp - timedelta(days=1)
+
+		if diffTime!=timedelta(days=1) and ((tp.weekday==0 and tp.hour<diffTime.total_seconds()/3600) or (tp.weekday==4 and tp.hour>24-diffTime.total_seconds()/3600)):
+			return None
+
+		#prevTime1 = tp - timedelta(days=1)
+		prevTime1 = tp - diffTime
 		prevTime2 = tp
 		prevTime3 = tp
 		prevTime4 = tp
 		postTime1 = tp
-		postTime2 = tp+timedelta(days=1)
+		#postTime2 = tp+timedelta(days=1)
+		postTime2 = tp+diffTime
 		postTime3 = postTime2
 		postTime4 = postTime2 
-		if tp.weekday()==0:
+		if tp.weekday()==0 and diffTime==timedelta(days=1):
 			prevTime1 = tp - timedelta(days=3)
 			prevTime2 = (tp-timedelta(days=2)).replace(hour=0,minute=0,second=0)
 			prevTime3 = tp.replace(hour=0,minute=0,second=0)
 			prevTime4 = tp
-		elif tp.weekday()==4:
+		elif tp.weekday()==4 and diffTime==timedelta(days=1):
 			postTime1 = tp
 			postTime2 = (tp+timedelta(days=1)).replace(hour=0,minute=0,second=0)
 			postTime3 = postTime2 + timedelta(days=2)
@@ -617,7 +630,7 @@ class collector():
 
 
 # Store data structure: list of list. each list contains zone, timestamp, beforeEnergy, afterEnergy
-	def collect_energy_diff(self, forceFlag, genieFlag):
+	def collect_energy_diff(self, forceFlag, genieFlag, timeDiff):
 		if genieFlag:
 			db = self.genierawdb
 		else:
@@ -635,9 +648,10 @@ class collector():
 			for tp in actuateData[zone]['timestamp']:
 				if tp.weekday()==5 or tp.weekday()==6:
 					continue
-				energyDiff = self.calc_energy_diff(tp, zone)
-				actuateEnergyData.append(energyDiff)
-		db.store('actuate_energy', actuateEnergyData)
+				energyDiff = self.calc_energy_diff(tp, zone, timeDiff)
+				if energyDiff:
+					actuateEnergyData.append(energyDiff)
+		db.store('actuate_energy_'+str(timeDiff.total_seconds()/3600), actuateEnergyData)
 
 		if genieFlag:
 			setpointData = db.load('setpoint_per_zone')
@@ -652,9 +666,10 @@ class collector():
 			for tp in setpointData[zone]['timestamp']:
 				if tp.weekday()==5 or tp.weekday()==6:
 					continue
-				energyDiff = self.calc_energy_diff(tp, zone)
-				setpointEnergyData.append(energyDiff)
-		db.store('setpoint_energy', setpointEnergyData)
+				energyDiff = self.calc_energy_diff(tp, zone, timeDiff)
+				if energyDiff:
+					setpointEnergyData.append(energyDiff)
+		db.store('setpoint_energy_'+str(timeDiff.total_seconds()/3600), setpointEnergyData)
 		
 	def collect_occ_samples(self, forceFlag):
 		if not self.proceed_check(self.genierawdb, 'occ_samples', forceFlag):
@@ -676,11 +691,12 @@ class collector():
 		self.genierawdb.store('occ_samples', occ_samples)
 
 
-	#return current temperature near tp)
-	def get_temp_point(self, zone,tp):
+	#return current temperature or flow near tp)
+	# sensorType should be one of 'Zone Temperature' and 'Supply Air Flow'
+	def get_temp_flow_point(self, zone, tp, sensorType):
 		beginTime = tp - timedelta(minutes=10)
 		endTime = tp + timedelta(minutes=10)
-		tempData = self.bdm.download_dataframe('Zone Temperature', 'PresentValue', zone, beginTime, endTime)
+		tempData = self.bdm.download_dataframe(sensorType, 'PresentValue', zone, beginTime, endTime)
 		if len(tempData)<=0:
 			return None
 		else:
@@ -711,7 +727,7 @@ class collector():
 			for row in zoneSetpoint.iterrows():
 				tp = row[1]['timestamp']
 				setpoint = row[1]['value']
-				currTemp = self.get_temp_point(zone, tp) # TODO: Implement this
+				currTemp = self.get_temp_flow_point(zone, tp, 'Zone Temperature') # TODO: Implement this
 				if currTemp == None:
 					continue
 				tempDict.append({currTemp:setpoint})
@@ -720,7 +736,7 @@ class collector():
 			for row in zoneSetpntDiff.iterrows():
 				tp = row[1]['timestamp']
 				setpntDiff = row[1]['value']
-				currTemp = self.get_temp_point(zone, tp)
+				currTemp = self.get_temp_flow_point(zone, tp, 'Zone Temperature')
 				if currTemp == None:
 					continue
 				tempDiffDict.append({currTemp:setpntDiff})
@@ -835,6 +851,116 @@ class collector():
 
 		self.genierawdb.store('actuated_hours_per_zone', actuHoursDict)
 	
+	def collect_flow_temp_vs_setpoint_zone(self, forceFlag, genieFlag, zone):
+		if genieFlag:
+			db = self.genierawdb
+			if not self.proceed_check(db,'flow_vs_setpnt', forceFlag):
+				return None
+		else:
+			db = self.thermrawdb
+			if not self.proceed_check(db,'flow_vs_wcad', forceFlag):
+				return None
+
+		tempDiffDict = list()
+		tempDict = list()
+		flowDiffDict = list()
+		flowDict = list()
+		if genieFlag: 
+			zoneSetpoints = db.load('setpoint_per_zone')
+			zoneSetpntDiffs = db.load('setpoint_diff_per_zone')
+		else:
+			zoneSetpoints = db.load('wcad_per_zone_filtered')
+			zoneSetpntDiffs = db.load('wcad_diff_per_zone')
+
+		zoneSetpoint = zoneSetpoints[zone]
+		for row in zoneSetpoint.iterrows():
+			tp = row[1]['timestamp']
+			setpoint = row[1]['value']
+			currFlow = self.get_temp_flow_point(zone, tp, 'Actual Supply Flow') # TODO: Implement this
+			currTemp = self.get_temp_flow_point(zone, tp, 'Zone Temperature') # TODO: Implement this
+			if currTemp==None or currFlow==None:
+				continue
+			tempDict.append({currTemp:setpoint})
+			flowDict.append({currFlow:setpoint})
+
+		zoneSetpointDiff = zoneSetpntDiffs[zone]
+		for row in zoneSetpointDiff.iterrows():
+			tp = row[1]['timestamp']
+			setpoint = row[1]['value']
+			currFlow = self.get_temp_flow_point(zone, tp, 'Actual Supply Flow') # TODO: Implement this
+			currTemp = self.get_temp_flow_point(zone, tp, 'Zone Temperature') # TODO: Implement this
+			if currTemp==None or currFlow==None:
+				continue
+			tempDiffDict.append({currTemp:setpoint})
+			flowDiffDict.append({currFlow:setpoint})
+
+		if genieFlag:
+			db.store('flow_vs_setpnt_'+zone, flowDict)
+			db.store('flow_vs_setpnt_diff_'+zone, flowDiffDict)
+			db.store('temp_vs_setpnt_'+zone, tempDict)
+			db.store('temp_vs_setpnt_diff_'+zone, tempDiffDict)
+		else:
+			db.store('flow_vs_wcad_'+zone, flowDict)
+			db.store('flow_vs_wcad_diff_'+zone, flowDiffDict)
+			db.store('temp_vs_wcad_'+zone, tempDict)
+			db.store('temp_vs_wcad_diff_'+zone, tempDiffDict)
+	
+	def collect_flow_vs_setpoint(self, forceFlag, genieFlag):
+		if genieFlag:
+			db = self.genierawdb
+			if not self.proceed_check(db,'flow_vs_setpnt', forceFlag):
+				return None
+		else:
+			db = self.thermrawdb
+			if not self.proceed_check(db,'flow_vs_wcad', forceFlag):
+				return None
+
+		flowDiffDict = list()
+		flowDict = list()
+		if genieFlag: 
+			zoneSetpoints = db.load('setpoint_per_zone')
+			zoneSetpntDiffs = db.load('setpoint_diff_per_zone')
+		else:
+			zoneSetpoints = db.load('wcad_per_zone_filtered')
+			zoneSetpntDiffs = db.load('wcad_diff_per_zone')
+		for zone, zoneSetpoint in zoneSetpoints.iteritems():
+			print zone
+			for row in zoneSetpoint.iterrows():
+				tp = row[1]['timestamp']
+				setpoint = row[1]['value']
+				currtemp = self.get_temp_flow_point(zone, tp, 'Actual Supply Flow') # TODO: Implement this
+				if currtemp == None:
+					continue
+				flowDict.append({currtemp:setpoint})
+		for zone, zoneSetpntDiff in zoneSetpntDiffs.iteritems():
+			print zone
+			for row in zoneSetpntDiff.iterrows():
+				tp = row[1]['timestamp']
+				setpntDiff = row[1]['value']
+				currtemp = self.get_temp_flow_point(zone, tp, 'Actual Supply Flow')
+				if currtemp == None:
+					continue
+				flowDiffDict.append({currtemp:setpntDiff})
+
+		if genieFlag:
+			db.store('flow_vs_setpnt', flowDict)
+			db.store('flow_vs_setpnt_diff', flowDiffDict)
+		else:
+			db.store('flow_vs_wcad', flowDict)
+			db.store('flow_vs_wcad_diff', flowDiffDict)
+
+	def collect_genie_zone_activity(self):
+		genieActivityBegin = dict()
+		for zone in self.geniezonelist:
+			actuBegin = self.bdm.download_begintime('Genie HVAC Control', 'Actuate', zone, self.beginTime, self.endTime)
+			if actuBegin:
+				genieActivityBegin[zone] = datetime.strptime(actuBegin, '%Y-%m-%dT%H:%M:%S+00:00') - timedelta(hours=7)		
+			else:
+				genieActivityBegin[zone] = datetime(2015,8,1,0,0,0)
+		self.genierawdb.store('genie_activity_begin', genieActivityBegin)
+
+		
+	
 	def collect_all_data(self, forceFlag):
 #		forceFlag = True
 		GenieFlag = True
@@ -842,7 +968,7 @@ class collector():
 		print "Start collecting data from BulidingDepot"
 		#self.collect_genie_offtime_per_zone(forceFlag)
 
-		self.collect_genie_actuate_per_zone(forceFlag)
+		#self.collect_genie_actuate_per_zone(forceFlag)
 		print "Finish collecting genie actuation data"
 
 		#self.collect_therm_actuate_per_zone(forceFlag)
@@ -854,21 +980,32 @@ class collector():
 		#self.collect_therm_wcad_per_zone(forceFlag)
 		print "Finish collecting thermostat warm-cool adjust data"
 
-		#self.collect_energy_diff(forceFlag, GenieFlag)
+		#self.collect_energy_diff(forceFlag, GenieFlag, timedelta(days=1))
 		print "Finish calculating genie energy differnce"
 
-		#self.collect_energy_diff(forceFlag, ThermFlag)
+		#self.collect_energy_diff(forceFlag, ThermFlag, timedelta(days=1))
 		print "Finish calculating thermostat energy difference"
-
-		#self.collect_temp_vs_setpnt(forceFlag, GenieFlag)
-		print "Finish collecting genie's zone temperature information at each temperature setpoints"
-
-		#self.collect_temp_vs_setpnt(forceFlag, ThermFlag)
-		print "Finish collecting Thermostat's zone temperature information at warm coold adjust points"
 
 		#self.collect_power(forceFlag)
 		
 		#self.collect_occ_samples(forceFlag)
 		print "FInish collect6ing samples of OCC to compare calendar"
 
-		self.collect_genie_actuated_hours(forceFlag)
+		#self.collect_genie_actuated_hours(forceFlag)
+
+		self.collect_temp_vs_setpnt(forceFlag, GenieFlag)
+		self.collect_temp_vs_setpnt(forceFlag, ThermFlag)
+		self.collect_flow_vs_setpoint(forceFlag, GenieFlag)
+		self.collect_flow_vs_setpoint(forceFlag, ThermFlag)
+		self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2140')
+		self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2150')
+		self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2272')
+		self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '3202')
+		self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '2146')
+		self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '4114')
+		self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '3140')
+		self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '4150')
+
+		self.collect_genie_zone_activity()
+		self.collect_energy_diff(forceFlag, GenieFlag, timedelta(hours=2))
+		self.collect_energy_diff(forceFlag, ThermFlag, timedelta(hours=2))

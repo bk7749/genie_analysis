@@ -44,6 +44,40 @@ class bdmanager:
 		utctz = timezone("UTC")
 		return tp.replace(tzinfo=utctz).astimezone(pst)
 
+	def download_begintime(self, template, sensorpoint, zone, beginTime, endTime):
+		beginTimeUTC = self.pst2utc(beginTime)
+		endTimeUTC = self.pst2utc(endTime)
+		beginTimeUTCstr = beginTimeUTC.isoformat()
+		endTimeUTCstr = endTimeUTC.isoformat()
+		payload = {'context': '{"room":"' + 'rm-'+ zone + '", "template":"'+template+'"}'}
+		#payloadDict = {'context': {"room": 'rm-'+ zone , "template": template}}
+#		payload = str(payloadDict)
+		resp = requests.get(self.srcUrlBase, params=payload, auth=self.srcUrlOptions, timeout=10)
+		#ts = pd.
+		if resp.status_code ==200:
+			resp = resp.json()
+			sensors = resp['sensors']
+			if len(sensors)>0:
+				try:
+					sensor = sensors[0]
+					uuid = sensor['uuid']
+					url = self.srcUrlBase + '/' + uuid + '/sensorpoints/'+sensorpoint+'/timeseries?start=' + beginTimeUTCstr+ '&stop=' + endTimeUTCstr
+					sensorResp = requests.get(url, auth=self.srcUrlOptions, timeout=15)
+					sensorResp = sensorResp.json()
+					begin = sensorResp['span']['begin']
+					return begin
+				except:
+					e = sys.exc_info()[0]
+					print( "<p>Error: %s</p>" % e )
+					traceback.print_exc()
+			else:
+				print("No sensor found at "+zone)
+		else:
+			print("bad request: ", resp)
+		
+		return None
+
+
 	# template (str), sensorpoint type (str), zone number (str), beginTime (datetime), endTime (datetime) -> raw ts data (list of dict)
 	def download_raw(self, template, sensorpoint, zone, beginTime, endTime):
 		#beginTimeUTCstr = datetime.strftime(self.pst2utc(beginTime), self.timeBDFormat)

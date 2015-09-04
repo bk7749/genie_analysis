@@ -113,7 +113,7 @@ class processor:
 		else:
 			rawdb = self.thermrawdb
 			procdb = self.thermprocdb
-			setpntDict = rawdb.load('wcad_per_zone')
+			setpntDict = rawdb.load('wcad_per_zone_filtered')
 			localZoneList = self.zonelist
 
 		setpntDevDict = dict()
@@ -176,11 +176,13 @@ class processor:
 			rawdb = self.genierawdb
 			setpntDiffs = rawdb.load('setpoint_diff_per_zone')
 			localZoneList = self.geniezonelist
+			errorZones = []
 		else:
 			procdb = self.thermprocdb
 			rawdb = self.thermrawdb
 			setpntDiffs = rawdb.load('wcad_diff_per_zone')
 			localZoneList = self.zonelist
+			errorZones = rawdb.load('wcad_error_zone_list')
 
 		setpntDiffZone = defaultdict(list)
 		setpntDiffMonth= defaultdict(list)
@@ -189,6 +191,8 @@ class processor:
 			setpntDiffZone[zone] = []
 
 		for zone, setpntDiff in setpntDiffs.iteritems():
+			if zone in errorZones:
+				continue
 			for row in setpntDiff.iterrows():
 				tp = row[1]['timestamp']
 				val = row[1]['value']
@@ -234,7 +238,7 @@ class processor:
 		self.thermprocdb.store('setpoint_dev_hour', wcadDevHour)
 		self.thermprocdb.store('setpoint_dev_month', wcadDevMonth)
 
-	def proc_setpoint_energy(self, forceFlag, genieFlag):
+	def proc_setpoint_energy(self, forceFlag, genieFlag, timeDiff):
 		if genieFlag:
 			db = self.genieprocdb
 			rawdb = self.genierawdb
@@ -245,7 +249,7 @@ class processor:
 			#localZoneList = self.zonelist
 			localZoneList = self.notgenielist
 		
-		setpntEnergy= rawdb.load('setpoint_energy')
+		setpntEnergy= rawdb.load('setpoint_energy_'+str(timeDiff.total_seconds()/3600))
 		totalEnergyMonth = defaultdict(float)
 		totalEnergyHour = defaultdict(float)
 		totalEnergyZone = defaultdict(float)
@@ -273,9 +277,9 @@ class processor:
 			totalEnergyHour[tp.hour] += energyDiff 
 
 		sortedTotalEnergyZone = OrderedDict(sorted(totalEnergyZone.items(), key=operator.itemgetter(1)))
-		db.store('setpnt_energy_diff_zone', sortedTotalEnergyZone)
-		db.store('setpnt_energy_diff_month', totalEnergyMonth)
-		db.store('setpnt_energy_diff_hour', totalEnergyHour)
+		db.store('setpnt_energy_diff_zone_'+str(timeDiff.total_seconds()/3600), sortedTotalEnergyZone)
+		db.store('setpnt_energy_diff_month_'+str(timeDiff.total_seconds()/3600), totalEnergyMonth)
+		db.store('setpnt_energy_diff_hour_'+str(timeDiff.total_seconds()/3600), totalEnergyHour)
 
 	def proc_energy_change(self, forceFlag, genieFlag):
 		if genieFlag:
@@ -358,11 +362,13 @@ class processor:
 				#print "Please use proc_genie_actu_freq"
 				print "Should I use proc_genie_actu_freq??"
 #				return None
+			errorZoneList = []
 		else:
 #			localZoneList = self.notgenielist
 			localZoneList = self.zonelist
 			procdb = self.thermprocdb
 			rawdb = self.thermrawdb
+			errorZoneList = self.thermrawdb.load('wcad_error_zone_list')
 		if dataType == 'wcad':
 			dataDict = rawdb.load(dataType+"_per_zone_filtered")
 		else:
@@ -399,6 +405,37 @@ class processor:
 					notgenieMonthDict[(tp.year-2013)*12+tp.month] += 1
 					notgenieHourDict[tp.hour] += 1
 				zoneDict[zone] += 1
+
+
+		# Reflecting erroneous zones with average
+		genieErrorZoneCnt = 0
+		notgenieErrorZoneCnt = 0
+		for zone in errorZoneList:
+			if zone in self.geniezonelist:
+				genieErrorZoneCnt += 1
+			else:
+				notgenieErrorZoneCnt += 1
+		errorZoneCnt = len(errorZoneList)
+		normalZoneCnt = len(localZoneList)
+		genieNormalZoneCnt = len(self.geniezonelist)
+		notgenieNormalZoneCnt = normalZoneCnt - genieNormalZoneCnt
+		for key, value in monthDict.iteritems():
+			monthDict[key] = value * normalZoneCnt / (normalZoneCnt-errorZoneCnt)
+		for key, value in hourDict.iteritems():
+			hourDict[key] = value * normalZoneCnt / (normalZoneCnt-errorZoneCnt)
+		if not genieFlag:
+			for key, value in genieHourDict.iteritems():
+				genieHourDict[key] = value * genieNormalZoneCnt / (genieNormalZoneCnt-genieErrorZoneCnt)
+			for key, value in genieMonthDict.iteritems():
+				genieMonthDict[key] = value * genieNormalZoneCnt / (genieNormalZoneCnt-genieErrorZoneCnt)
+			for key, value in notgenieHourDict.iteritems():
+				notgenieHourDict[key] = value * notgenieNormalZoneCnt / (notgenieNormalZoneCnt-notgenieErrorZoneCnt)
+			for key, value in notgenieMonthDict.iteritems():
+				notgenieMonthDict[key] = value * notgenieNormalZoneCnt / (notgenieNormalZoneCnt-notgenieErrorZoneCnt)
+
+		avgZone = np.mean(zoneDict.values())
+		for zone in errorZoneList:
+			zoneDict[zone] = avgZone
 
 		procdb.store(dataType+'_per_month', monthDict)
 		procdb.store(dataType+'_per_hour', hourDict)
@@ -449,13 +486,13 @@ class processor:
 			for month, energy in energies.iteritems():
 				if month>=31:
 					continue
-				energies[month] = energy / area[zone]
+				energies[month] = energy / area[zone] / 3600
 			weekendEnergies[zone] = energies
 		for zone, energies in weekdayEnergies.iteritems():
 			for month, energy in energies.iteritems():
 				if month>=31:
 					continue
-				energies[month] = energy / area[zone]
+				energies[month] = energy / area[zone] / 3600
 			weekdayEnergies[zone] = energies
 
 		for zone in weekendEnergies.keys():
@@ -497,8 +534,8 @@ class processor:
 		self.proc_energy_change(ForceFlag, ThermFlag)
 		print "Finish processing thermostat energy analysis"
 		
-		self.proc_setpoint_energy(ForceFlag, GenieFlag)
-		self.proc_setpoint_energy(ForceFlag, ThermFlag)
+		self.proc_setpoint_energy(ForceFlag, GenieFlag, timedelta(hours=2))
+		self.proc_setpoint_energy(ForceFlag, ThermFlag, timedelta(hours=2))
 
 		#3-1
 		self.proc_freq(ForceFlag, GenieFlag, 'actuate')

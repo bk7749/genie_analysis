@@ -2,6 +2,7 @@ import plotter
 reload(plotter)
 from localdb import localdb
 from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.patches as patches
 import matplotlib.colors as col
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
@@ -24,6 +25,7 @@ class log_plotter:
 	geniezonelist = None
 	notgenielist = list()
 	figdir = 'figs/'
+	figsize = (4,2)
 	
 
 	def __init__(self):
@@ -68,12 +70,17 @@ class log_plotter:
 		linewidth=0
 		legends = ['Setpoints', 'Actuates']
 		xlabel = 'User'
-		ylabel = 'Number of Activity'
+		ylabel = '# Activity'
 
 		fig, axis = plt.subplots(1,1)
-		clist = ['b','y']
+		clist = ['skyblue','peachpuff']
+		hatch = ['xx', 'oo']
 
-		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, axis=axis, dataLabels=legends, linewidth=linewidth, clist=clist)
+#		legendLoc = 'upper left'
+		legendLoc = (0.25,0.7)
+		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, axis=axis, dataLabels=legends, linewidth=linewidth, clist=clist, legendLoc=legendLoc, hatchSeries=hatch)
+		figsize = self.figsize
+		fig.set_size_inches(figsize)
 		plotter.save_fig(fig, self.figdir+'genie_user_activities.pdf')
 
 	def plot_an_user_activity(self, username):
@@ -94,16 +101,25 @@ class log_plotter:
 			actuMonth[(tp.year-2013)*12+tp.month] += 1
 
 		plotData = [setpntMonth.values(), actuMonth.values()]
-		linewidth=0
+		maxY = max([max(setpntMonth.values()), max(actuMonth.values())])
+		linewidth=None
 		legends = ['Setpoints', 'Actuates']
 		xlabel = 'Time (Month/Year)'
-		ylabel = 'Number of Activity'
+		ylabel = '# Activity'
 		xtickLabel = plotter.make_month_tag()
 
 		fig, axis = plt.subplots(1,1)
-		clist = ['b','y']
+		clist = ['skyblue','peachpuff']
+		hatch = ['xx','oo']
+		ylim = (0,60)
+		figsize = self.figsize
 
-		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, axis=axis, dataLabels=legends, linewidth=linewidth, clist=clist)
+		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, axis=axis, dataLabels=legends, linewidth=linewidth, clist=clist, xtickTag=xtickLabel, ylim=ylim, hatchSeries=hatch)
+		greyRect = patches.Rectangle((6.5,0), 5,70, alpha=0.1)
+		axis.add_patch(greyRect)
+		axis.text(7, ylim[1]/2, 'Lost Data')
+		fig.set_size_inches(figsize)
+		fig.tight_layout()
 		plotter.save_fig(fig, self.figdir+'users/genie_user_activities_' + username + '.pdf')
 
 
