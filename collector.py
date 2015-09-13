@@ -963,7 +963,31 @@ class collector():
 				genieActivityBegin[zone] = datetime(2015,8,1,0,0,0)
 		self.genierawdb.store('genie_activity_begin', genieActivityBegin)
 
-		
+	def collect_temp_occ(self):
+		tempOccDict = dict()
+		for zone in self.zonelist:
+			print zone
+			tempOcc = self.bdm.download_dataframe("Temp Occ Sts", 'PresentValue', zone, self.beginTime, self.endTime)
+			if len(tempOcc)>0:
+				tempOccDiff = self.diff_list(tempOcc, False, True, 0.5)
+				tempOccDict[zone] = tempOccDiff
+		self.thermrawdb.store('temp_occ_sts', tempOccDict)
+	
+	def collect_temp_occ_while_oc(self):
+		tempOccDict = self.thermrawdb.load('temp_occ_sts')
+		redundantTempOccDict = dict()
+		for zone in self.zonelist:
+			if zone in tempOccDict.keys():
+				oc = self.bdm.download_dataframe('Occupied Command', 'PresentValue', zone, self.beginTime, self.endTime)
+				tempOcc = tempOccDict[zone]
+				redundantTempOccList = list()
+				for row in tempOcc.iterrows():
+					tp = row[1]['timestamp']
+					ocIdx = self.find_closest_left_index(tp, oc)
+					if oc['value'][ocIdx]==3:
+						redundantTempOccList.append(tp)
+				redundantTempOccDict[zone] = redundantTempOccList
+		self.thermrawdb.store('redundant_temp_occ_sts', redundantTempOccDict)
 	
 	def collect_all_data(self, forceFlag):
 #		forceFlag = True
@@ -990,7 +1014,7 @@ class collector():
 		#self.collect_energy_diff(forceFlag, ThermFlag, timedelta(days=1))
 		print "Finish calculating thermostat energy difference"
 
-		self.collect_power(forceFlag)
+		#self.collect_power(forceFlag)
 		
 		#self.collect_occ_samples(forceFlag)
 		print "FInish collect6ing samples of OCC to compare calendar"
@@ -998,10 +1022,10 @@ class collector():
 #TODO Debug this function
 		#self.collect_genie_actuated_hours(forceFlag)
 
-		self.collect_temp_vs_setpnt(forceFlag, GenieFlag)
-		self.collect_temp_vs_setpnt(forceFlag, ThermFlag)
-		self.collect_flow_vs_setpoint(forceFlag, GenieFlag)
-		self.collect_flow_vs_setpoint(forceFlag, ThermFlag)
+		#self.collect_temp_vs_setpnt(forceFlag, GenieFlag)
+		#self.collect_temp_vs_setpnt(forceFlag, ThermFlag)
+		#self.collect_flow_vs_setpoint(forceFlag, GenieFlag)
+		#self.collect_flow_vs_setpoint(forceFlag, ThermFlag)
 		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2140')
 		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2150')
 		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2272')
@@ -1011,6 +1035,8 @@ class collector():
 		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '3140')
 		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '4150')
 
-		self.collect_genie_zone_activity()
-		self.collect_energy_diff(forceFlag, GenieFlag, timedelta(hours=2))
-		self.collect_energy_diff(forceFlag, ThermFlag, timedelta(hours=2))
+		#self.collect_genie_zone_activity()
+		#self.collect_energy_diff(forceFlag, GenieFlag, timedelta(hours=2))
+		#self.collect_energy_diff(forceFlag, ThermFlag, timedelta(hours=2))
+		self.collect_temp_occ()
+		self.collect_temp_occ_while_oc()
