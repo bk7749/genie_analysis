@@ -23,7 +23,7 @@ import math
 
 def save_fig(fig, name):
 	pp = PdfPages(name)
-	pp.savefig(fig, bbox_inches='tight', pad_inches=0, dpi=300)
+	pp.savefig(fig, bbox_inches='tight', pad_inches=0, dpi=400)
 	pp.close()
 
 
@@ -37,11 +37,12 @@ def save_fig(fig, name):
 # dataSeries[1] and dataSereis[2] should be stacked on same bar
 # dataSeries[3] and dataSereis[4] should be stacked on same bar
 # Other details should be implemented in inheritor
-def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, ylim=None, linewidth=0.2, xtickRotate=None, legendLoc='best', hatchSeries=None, eclist=None):
+def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, ylim=None, linewidth=0.2, xtickRotate=None, legendLoc='best', hatchSeries=None, eclist=None, oneBlockWidth=0.8):
 	barNum = len(dataSeries)/(stackNum+1)
 	totalBlockWidth = 0.8
-	#oneBlockWidth = float(0.5/float(barNum))
-	oneBlockWidth = float(0.8/float(barNum))
+	#oneBlockWidth = float(0.8/float(barNum))
+	oneBlockWidth = float(oneBlockWidth/float(barNum))
+	originalOneBlockWidth = float(0.8/float(barNum))
 	x = np.arange(0,len(dataSeries[0]))
 	if axis==None:
 		#axis = plt.gca()
@@ -52,7 +53,7 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 	hatchLabelIdx = 0
 	ecolorIdx = 0
 	for barIdx in range(0,barNum):
-		xpos = x-totalBlockWidth/2.0 + oneBlockWidth*barIdx + oneBlockWidth/2.0
+		xpos = x-totalBlockWidth/2.0 + originalOneBlockWidth*barIdx + originalOneBlockWidth/2.0
 		if clist:
 			color = clist[colorIdx]
 			colorIdx += 1
@@ -113,12 +114,12 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 	if ylim:
 		axis.set_ylim(ylim)
 	if ylabel:
-		#axis.set_ylabel(ylabel, labelpad=-2)
-		axis.set_ylabel(ylabel)
+		axis.set_ylabel(ylabel, labelpad=-0.5)
+#		axis.set_ylabel(ylabel)
 	if xlabel:
 	#	plt.xlabel(xlabel, labelpad=-2)
-		#axis.set_xlabel(xlabel, labelpad=-1)
-		axis.set_xlabel(xlabel)
+		axis.set_xlabel(xlabel, labelpad=-0.5)
+#		axis.set_xlabel(xlabel)
 	
 	if dataLabels: 
 		axis.legend(handles=bars, fontsize=8, loc=legendLoc)
@@ -131,32 +132,39 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 		#plt.xticks(xtickRange, xtickTag, fontsize=10, rotation=70)
 		axis.set_xticks(xtickRange)
 		axis.set_xticklabels(xtickTag, fontsize=8, rotation=xtickRotate)
-	if ytickTag:
-		if not ytickRange:
+	if ytickTag != None:
+		if ytickRange==None:
 			ytickRange = np.arange(0,len(ytickTag))
 		#plt.yticks(ytickRange, ytickTag, fontsize=10)
-		axis.set_yticks(ytickRange, ytickTag, fontsize=8)
+		axis.set_yticks(ytickRange)
+		axis.set_yticklabels(ytickTag, fontsize=8)
 	if title:
 		#plt.title(title)
 		axis.set_title(title, y=1.08)
-	return fig
+	return fig, bars
 
-def plot_up_down_bars(upData, downData, figSizeIn, xlabel, ylabel, title=None):
-	fig = plt.figure(figsize = figSizeIn)
+def plot_up_down_bars(upData, downData, upStd=None, downStd=None, xlabel=None, ylabel=None, title=None, axis=None, fig=None, upColor=None, downColor=None, dataLabels=None, legendLoc='best'):
+	if fig==None and axis==None:
+		fig, axis = plt.subplots(1,1)
 	barNum = len(upData)
 	if barNum != len(downData):
 		print "data length mismatch"
 		return None
 	blockWidth = 0.5
 	x = np.arange(0,barNum)
-	plt.bar(x,upData)
-	plt.bar(x,-downData)
-	plt.ylabel(ylabel, labelpad=-2)
-	plt.xlabel(xlabel, labelpad=-2)
-	plt.tight_layout()
+	bars = list()
+	if dataLabels != None:
+		legendUp = dataLabels[0]
+		legendDown = dataLabels[1]
+	bars.append(axis.bar(x,upData, yerr=upStd, color=upColor, align='center', label=legendUp))
+	bars.append(axis.bar(x,downData, yerr=downStd, color=downColor, align='center', label=legendDown))
+	if dataLabels != None:
+		axis.legend(handles=bars, fontsize=8, loc=legendLoc)
+	axis.set_ylabel(ylabel, labelpad=-2)
+	axis.set_xlabel(xlabel, labelpad=-2)
+	axis.set_xlim(x[0]-1,x[len(x)-1]+1)
 	if title:
 		plt.title(title)
-	plt.show()
 	return fig
 
 def plot_colormap(data, figSizeIn, xlabel, ylabel, cbarlabel, cmapIn, ytickRange, ytickTag, xtickRange=None, xtickTag=None, title=None):
@@ -263,11 +271,11 @@ def plot_multiple_2dline(x, ys, xlabel=None, ylabel=None, xtick=None, xtickLabel
 def plot_yy_bar(dataSeries, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, yerrs=None, ylim=None, linewidth=None):
 	pass
 	
-def make_month_tag():
+def make_month_tag(baseTime):
 	monthTags = list()
-	basetime = datetime(2013,12,1)
-	for i in range(0,19):
-		monthTags.append(basetime.strftime('%b/%y'))
-		basetime += timedelta(days=31)
+#	for i in range(0,21):
+	while baseTime<datetime(2015,6,25):
+		monthTags.append(baseTime.strftime('%b-\'%y'))
+		baseTime += timedelta(days=31)
 
 	return monthTags

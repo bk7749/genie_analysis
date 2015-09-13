@@ -160,7 +160,7 @@ class genie_plotter:
 		therm_setpnt_dev_hour = self.thermprocdb.load('wcad_diff_per_hour')
 		therm_setpnt_dev_month = self.thermprocdb.load('wcad_diff_per_month')
 
-		monthTag = plotter.make_month_tag()
+		monthTag = plotter.make_month_tag(datetime(2013,10,1))
 	
 		genieBaseTitle = 'Averaged Deviation in Setpoint due to'
 		#title1 = genieBaseTitle + "Genie Usage " + ' vs Zone'
@@ -222,7 +222,7 @@ class genie_plotter:
 		title2 = None
 
 		if dataType=='month':
-			xtickTag = plotter.make_month_tag()
+			xtickTag = plotter.make_month_tag(datetime(2013,10,1))
 		else:
 			xtickTag = None
 		if dataType=='zone':
@@ -513,7 +513,7 @@ class genie_plotter:
 		plotDataMonth.append(np.array(energyDiffMonth.values())/3600)
 		plotDataZone = list()
 		plotDataZone.append(np.array(energyDiffZone.values())/3600)
-		monthTag = plotter.make_month_tag()
+		monthTag = plotter.make_month_tag(datetime(2013,10,1))
 		figMonth = plotter.plot_multiple_stacked_bars(plotDataMonth, 0, xlabel=xlabelMonth, ylabel=ylabel, xtickTag=monthTag, title=titleMonth)
 		figZone = plotter.plot_multiple_stacked_bars(plotDataZone, 0, xlabel=xlabelZone, ylabel=ylabel, title=titleZone)
 		
@@ -564,7 +564,7 @@ class genie_plotter:
 		xlabelZone = 'Zone'
 		xlabelHour= 'Hour'
 
-		monthTag = plotter.make_month_tag()
+		monthTag = plotter.make_month_tag(datetime(2013,10,1))
 		plotDataMonth = list()
 		plotDataMonth.append(np.array(energyDiffMonth.values())/3600)
 		plotDataUtilMonth = [np.array(setpntMonth.values())]
@@ -655,6 +655,64 @@ class genie_plotter:
 				setpntTS[(tp.year-2013)*12+tp.month] += 1
 		return setpntTS, actuateTS
 
+	def plot_wcad_usage_zone_including_error(self):
+		title = None
+		genieData = self.genieprocdb.load('setpoint_per_zone')
+		thermData = self.thermprocdb.load('wcad_per_zone_include_errors')
+
+		genieListGenie = list()
+		genieListTherm = list()
+		notGenieListTherm = list()
+		errorZoneList = self.thermrawdb.load('wcad_error_zone_list')
+		
+		sortedThermDict = OrderedDict({key: thermData[key] for key in self.notgenielist})
+		sortedGenieDict = OrderedDict({key: genieData[key] for key in self.geniezonelist})
+
+		for zone in sortedGenieDict.keys():
+			genieListGenie.append(genieData[zone])
+			genieListTherm.append(thermData[zone])
+
+		for i in range(0,len(self.notgenielist)):
+			genieListTherm.append(0)
+			genieListGenie.append(0)
+		for i in range(0,len(self.geniezonelist)):
+			notGenieListTherm.append(0)
+		notGenieListTherm = notGenieListTherm + sortedThermDict.values()
+			
+
+		plotData = [genieListTherm, notGenieListTherm, genieListGenie]
+
+		legend1 = 'Thermostat with Genie'
+		legend2 = 'Thermostat without Genie'
+		legend3 = 'Genie'
+		xlabel = 'Zone'
+		ylabel = '# Changes'
+
+		fig, (axis1) = plt.subplots(1,1)
+		ylim = (0,1000)
+		clist = ['skyblue','peachpuff','yellowgreen']
+		linewidth=0
+		hatch=['//','--', '\\\\']
+		fig, bars = plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis1, fig=fig, dataLabels=[legend1,legend2, legend3], clist=clist, linewidth=linewidth, hatchSeries=hatch, oneBlockWidth=1.2)
+
+		for zone in errorZoneList:
+			if zone in self.geniezonelist:
+				idx = sortedGenieDict.keys().index(zone)
+				bars[0][idx].set_color('r')
+			else:
+				idx = len(self.geniezonelist) + sortedThermDict.keys().index(zone)
+				bars[1][idx].set_color('r')
+
+		#plotData = [sortedThermDict.values()]
+		#xtickLabel = [83,93,103,113,123,133,143,153]
+		#plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis2, fig=fig, dataLabels=[legend3], linewidth=linewidth, xtickTag=xtickLabel, xtickRotate=0, clist=clist)
+		figsize = (8,3)
+		fig.set_size_inches(figsize)
+		fig.subplots_adjust(hspace=0.3)
+		plt.show()
+
+		plotter.save_fig(fig, self.figdir+'usage_setpoint_zone.pdf')
+
 	def plot_an_activity_zone(self, dataType, sortIndicator):
 		title = 'Number of ' + dataType + ' vs zone'
 		title = None
@@ -687,11 +745,11 @@ class genie_plotter:
 		notGenieListTherm = notGenieListTherm + sortedThermDict.values()
 			
 
-		plotData = [genieListTherm, genieListGenie, notGenieListTherm]
+		plotData = [genieListTherm, notGenieListTherm, genieListGenie]
 
 		legend1 = 'Thermostat with Genie'
-		legend2 = 'Genie'
-		legend3 = 'Thermostat without Genie'
+		legend2 = 'Thermostat without Genie'
+		legend3 = 'Genie'
 		xlabel = 'Zone'
 		if dataType == 'setpoint':
 			ylabel = '# Setpoint Changes'
@@ -702,8 +760,8 @@ class genie_plotter:
 		ylim = (0,700)
 		clist = ['skyblue','peachpuff','yellowgreen']
 		linewidth=0
-		hatch=['xx','oo', '--']
-		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis1, fig=fig, dataLabels=[legend1,legend2, legend3], clist=clist, linewidth=linewidth, hatchSeries=hatch)
+		hatch=['//','--', '\\\\']
+		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis1, fig=fig, dataLabels=[legend1,legend2, legend3], clist=clist, linewidth=linewidth, hatchSeries=hatch, oneBlockWidth=1.3)
 		
 
 		#plotData = [sortedThermDict.values()]
@@ -794,8 +852,8 @@ class genie_plotter:
 
 		plt.xlabel('Time (Month)')
 		plt.ylabel('Count (Number)')
-		plt.xticks(x, plotter.make_month_tag(), fontsize=7,rotation=70)
-		plt.xlim(-1,19.1)
+		plt.xticks(x, plotter.make_month_tag(datetime(2013,10,1)), fontsize=7,rotation=70)
+		plt.xlim(-1,21.1)
 
 		title = "Utilization of Genie and Thermostats: \nEach bar is the total number of the activity per month"
 		title = None
@@ -823,7 +881,7 @@ class genie_plotter:
 			ylabel = '# Setpoint Changes'
 		elif dataType=='actuate':
 			ylabel = '# Actuation'
-		xtickLabel = plotter.make_month_tag()
+		xtickLabel = plotter.make_month_tag(datetime(2013,10,1))
 
 		fig, axis = plt.subplots(1,1)
 		if dataType=='actuate':
@@ -834,7 +892,7 @@ class genie_plotter:
 		#figsize = self.figsize
 		figsize = (4,3)
 		legends = ['Genie', 'Thermostat with Genie', 'Thermostat without Genie']
-		hatch = ['xx', 'oo', '--']
+		hatch = ['//', '--', '\\\\']
 		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, xtickRange=None, xtickTag=xtickLabel, ytickRange=None, ytickTag=None, title=title, stdSeries=None, axis=axis, fig=fig, clist=clist, dataLabels=legends,ylim=ylim, hatchSeries=hatch)
 		fig.set_size_inches(figsize)
 
@@ -879,7 +937,7 @@ class genie_plotter:
 			actuateMonth[(tp.year-2013)*12+tp.month] += 1
 
 #		plotData = [setpointMonth.values(), actuateMonth.values()]
-		xtickTagIn = plotter.make_month_tag()
+		xtickTagIn = plotter.make_month_tag(datetime(2013,10,1))
 		xlabel = 'Time (Month/Year)'
 		ylabel = 'Number of Activities'
 		ylim1 = (0,100)
@@ -925,11 +983,11 @@ class genie_plotter:
 		clist = ['skyblue','peachpuff']
 		xlabel = 'Time (Month/Year)''Month'
 		ylabel = 'Energy during \nWeekdays (kWh)'
-		xtickLabel= plotter.make_month_tag()
+		xtickLabel= plotter.make_month_tag(datetime(2013,10,1))
 		fig, (endAxis, dayAxis) = plt.subplots(2,1)
 		legends = ['Genie', 'Thermostat']
 		ylim = (0,3)
-		hatch = ['xx','oo']
+		hatch = ['//','\\\\']
 		plotter.plot_multiple_stacked_bars(dayAvgData, 0, xlabel=None, ylabel=ylabel, xtickTag=[], title=dayTitle, axis=endAxis, clist=clist, dataLabels=legends, stdSeries=dayStdData, ylim=ylim, hatchSeries=hatch)
 		plotter.plot_multiple_stacked_bars(endAvgData, 0, xlabel=xlabel, ylabel=ylabel, xtickTag=xtickLabel, title=endTitle, axis=dayAxis, clist=clist, dataLabels=legends, stdSeries=endStdData, ylim=ylim, hatchSeries=hatch)
 		figsize = (4,3)
@@ -937,6 +995,12 @@ class genie_plotter:
 		fig.subplots_adjust(hspace=0.2)
 
 		plotter.save_fig(fig, self.figdir+'weekday_weekend_energy.pdf')
+
+	def plot_genie_actuated_hours(self):
+		hourMonth = self.genieprocdb.load('actuated_hours_per_month')
+		hourZone = self.genieprocdb.load('actuated_hours_per_zone')
+		xlabelMonth = plotter.make_month_tag(datetime(2013,10,15))
+		#TODO TODO TODO
 
 	def plot_temp_flow_vs_setpnt_all_zones(self):
 		self.plot_zone_temp_flow_vs_setpnt(False,'4150')
@@ -947,18 +1011,61 @@ class genie_plotter:
 		self.plot_zone_temp_flow_vs_setpnt(True,'2150')
 		self.plot_zone_temp_flow_vs_setpnt(True,'2272')
 		self.plot_zone_temp_flow_vs_setpnt(True,'3202')
+			
+	def plot_one_therm_usage_month(self, zone, actuData, setpntData):
+		actuDict = dict()
+		setpntDict = dict()
+		beginTime = datetime(2013,10,15)
+		endTime = datetime(2015,6,25)
+		for i in range((beginTime.year-2013)*12+beginTime.month, (endTime.year-2013)*12+endTime.month+1):
+			actuDict[i] = 0
+			setpntDict[i] = 0
+		if zone in actuData.keys():
+			oneActu = actuData[zone]
+			for row in oneActu.iterrows():
+				tp = row[1]['timestamp']
+				actuDict[(tp.year-2013)*12+tp.month] +=1
+		if zone in setpntData.keys():
+			oneSetpnt = setpntData[zone]
+			for row in oneSetpnt.iterrows():
+				tp = row[1]['timestamp']
+				setpntDict[(tp.year-2013)*12+tp.month]+=1
+
+		fig, axis = plt.subplots(1,1)
+		plotData = [actuDict.values(), setpntDict.values()]
+		xlabel = 'Time (Month/Year)''Month'
+		ylabel = '# Activity'
+		xtickLabel = plotter.make_month_tag(datetime(2013,10,1))
+		clist = ['navy', 'peachpuff']
+		ylim = (0,30)
+		hatch = ['\\\\\\','///']
+		legends = ['Setpoints', 'Actuates']
+		
+		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, xtickTag=xtickLabel, title=zone, axis=axis, clist=clist, ylim=ylim, hatchSeries=hatch, dataLabels=legends)
+
+		plotter.save_fig(fig, self.figdir+'therm_usages/'+zone+'.pdf')
+
+
+	def plot_all_therm_usage_month(self):
+		actuDict = self.thermrawdb.load('actuate_per_zone')
+		setpntDict = self.thermrawdb.load('wcad_per_zone_filtered')
+		for zone in self.zonelist:
+			self.plot_one_therm_usage_month(zone, actuDict, setpntDict)
 	
 	def publish(self):
 		GenieFlag = True
 		ThermFlag = False
 		self.plot_an_activity_month('setpoint')
 		self.plot_an_activity_month('actuate')
-		self.plot_an_activity_zone('setpoint', 'fixed')
+		#self.plot_an_activity_zone('setpoint', 'fixed')
+		self.plot_wcad_usage_zone_including_error()
 		self.plot_an_activity_zone('actuate', 'fixed')
 		self.plot_setpnt_dev_vs_usability(GenieFlag, 'zone')
 		self.plot_setpnt_dev_vs_usability(GenieFlag, 'hour')
 		self.plot_setpnt_dev_vs_usability(ThermFlag, 'zone')
 		self.plot_setpnt_dev_vs_usability(ThermFlag, 'hour')
+		self.plot_setpnt_energy_diff(GenieFlag, timedelta(hours=2))
+		self.plot_setpnt_energy_diff(ThermFlag, timedelta(hours=2))
 		self.plot_energy()
 	
 	def test(self):
@@ -980,6 +1087,7 @@ class genie_plotter:
 		self.plot_an_activity_zone('actuate', 'fixed')
 		self.plot_an_activity_zone('setpoint', 'sorted')
 		self.plot_an_activity_zone('actuate', 'sorted')
+		self.plot_wcad_usage_zone_including_error()
 		self.plot_setpnt_dev()
 		self.plot_temp_vs_setpnt(GenieFlag, True)
 		self.plot_temp_vs_setpnt(GenieFlag, False)

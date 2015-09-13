@@ -26,8 +26,8 @@ class processor:
 	generaldb = None
 	genierawdb = None
 	thermrawdb = None
-	beginTime = datetime(2013,12,1,0,0,0)
-	endTime = datetime(2015,6,25,23,0,0)
+	beginTime = None
+	endTime = None
 	confrooms = ['2109', '2217', '3109', '3127', '4109', '4217']
 	normrooms = ['2150']
 	pst = timezone('US/Pacific')
@@ -47,7 +47,7 @@ class processor:
 		for zone in self.zonelist:
 			if zone not in self.geniezonelist:
 				self.notgenielist.append(zone)
-		self.beginTime = self.pst.localize(datetime(2013,12,1,0,0,0),is_dst=True)
+		self.beginTime = self.pst.localize(datetime(2013,10,15,4,0,0),is_dst=True)
 		self.endTime = self.pst.localize(datetime(2015,6,25,0,0,0),is_dst=True)
 		
 	
@@ -351,6 +351,20 @@ class processor:
 		db.store('energy_waste_zone', sortedEnergyWasteZone)
 		db.store('energy_diff_zone', sortedTotalEnergyZone)
 		db.store('energy_diff_month', totalEnergyMonth)
+	
+	def proc_freq_err_wcads(self, forceFlag):
+		errorZoneList = self.thermrawdb.load('wcad_error_zone_list')
+		wcadDict = self.thermrawdb.load('wcad_per_zone')
+		localZoneList = self.zonelist
+		zoneDict = dict()
+		for zone in localZoneList:
+			zoneDict[zone] = 0
+		for zone, data in wcadDict.iteritems():
+			if not zone in localZoneList:
+				continue
+			for tp in data['timestamp']:
+				zoneDict[zone] += 1
+		self.thermprocdb.store('wcad_per_zone_include_errors', zoneDict)
 
 	def proc_freq(self, forceFlag, genieFlag, dataType):
 		if genieFlag:
@@ -371,6 +385,7 @@ class processor:
 			errorZoneList = self.thermrawdb.load('wcad_error_zone_list')
 		if dataType == 'wcad':
 			dataDict = rawdb.load(dataType+"_per_zone_filtered")
+#			dataDict = rawdb.load(dataType+"_per_zone")
 		else:
 			dataDict = rawdb.load(dataType+"_per_zone")
 		
@@ -396,6 +411,9 @@ class processor:
 			if not zone in localZoneList:
 				continue
 			for tp in data['timestamp']:
+				zoneDict[zone] += 1
+				if zone in errorZoneList:
+					continue
 				monthDict[(tp.year-2013)*12+tp.month] += 1
 				hourDict[tp.hour] += 1
 				if zone in self.geniezonelist:
@@ -404,38 +422,37 @@ class processor:
 				else:
 					notgenieMonthDict[(tp.year-2013)*12+tp.month] += 1
 					notgenieHourDict[tp.hour] += 1
-				zoneDict[zone] += 1
 
 
 		# Reflecting erroneous zones with average
-		genieErrorZoneCnt = 0
-		notgenieErrorZoneCnt = 0
-		for zone in errorZoneList:
-			if zone in self.geniezonelist:
-				genieErrorZoneCnt += 1
-			else:
-				notgenieErrorZoneCnt += 1
-		errorZoneCnt = len(errorZoneList)
-		normalZoneCnt = len(localZoneList)
-		genieNormalZoneCnt = len(self.geniezonelist)
-		notgenieNormalZoneCnt = normalZoneCnt - genieNormalZoneCnt
-		for key, value in monthDict.iteritems():
-			monthDict[key] = value * normalZoneCnt / (normalZoneCnt-errorZoneCnt)
-		for key, value in hourDict.iteritems():
-			hourDict[key] = value * normalZoneCnt / (normalZoneCnt-errorZoneCnt)
-		if not genieFlag:
-			for key, value in genieHourDict.iteritems():
-				genieHourDict[key] = value * genieNormalZoneCnt / (genieNormalZoneCnt-genieErrorZoneCnt)
-			for key, value in genieMonthDict.iteritems():
-				genieMonthDict[key] = value * genieNormalZoneCnt / (genieNormalZoneCnt-genieErrorZoneCnt)
-			for key, value in notgenieHourDict.iteritems():
-				notgenieHourDict[key] = value * notgenieNormalZoneCnt / (notgenieNormalZoneCnt-notgenieErrorZoneCnt)
-			for key, value in notgenieMonthDict.iteritems():
-				notgenieMonthDict[key] = value * notgenieNormalZoneCnt / (notgenieNormalZoneCnt-notgenieErrorZoneCnt)
-
-		avgZone = np.mean(zoneDict.values())
-		for zone in errorZoneList:
-			zoneDict[zone] = avgZone
+#		genieErrorZoneCnt = 0
+#		notgenieErrorZoneCnt = 0
+#		for zone in errorZoneList:
+#			if zone in self.geniezonelist:
+#				genieErrorZoneCnt += 1
+#			else:
+#				notgenieErrorZoneCnt += 1
+#		errorZoneCnt = len(errorZoneList)
+#		normalZoneCnt = len(localZoneList)
+#		genieNormalZoneCnt = len(self.geniezonelist)
+#		notgenieNormalZoneCnt = normalZoneCnt - genieNormalZoneCnt
+#		for key, value in monthDict.iteritems():
+#			monthDict[key] = value * normalZoneCnt / (normalZoneCnt-errorZoneCnt)
+#		for key, value in hourDict.iteritems():
+#			hourDict[key] = value * normalZoneCnt / (normalZoneCnt-errorZoneCnt)
+#		if not genieFlag:
+#			for key, value in genieHourDict.iteritems():
+#				genieHourDict[key] = value * genieNormalZoneCnt / (genieNormalZoneCnt-genieErrorZoneCnt)
+#			for key, value in genieMonthDict.iteritems():
+#				genieMonthDict[key] = value * genieNormalZoneCnt / (genieNormalZoneCnt-genieErrorZoneCnt)
+#			for key, value in notgenieHourDict.iteritems():
+#				notgenieHourDict[key] = value * notgenieNormalZoneCnt / (notgenieNormalZoneCnt-notgenieErrorZoneCnt)
+#			for key, value in notgenieMonthDict.iteritems():
+#				notgenieMonthDict[key] = value * notgenieNormalZoneCnt / (notgenieNormalZoneCnt-notgenieErrorZoneCnt)
+#
+#		avgZone = np.mean(zoneDict.values())
+#		for zone in errorZoneList:
+#			zoneDict[zone] = avgZone
 
 		procdb.store(dataType+'_per_month', monthDict)
 		procdb.store(dataType+'_per_hour', hourDict)
@@ -514,6 +531,23 @@ class processor:
 		procdb.store('zone_weekday_energy_per_month_avg', dayAvgs)
 		procdb.store('zone_weekend_energy_per_month_std', endStds)
 		procdb.store('zone_weekday_energy_per_month_std', dayStds)
+
+	def proc_genie_actuated_hours(self):
+		hours = self.genierawdb.load('actuated_hours_per_zone')
+		monthDict = dict()
+		zoneDict = dict()
+		for i in range(10,31):
+			monthDict[i] = 0
+		for zone in self.geniezonelist:
+			zoneDict[zone] = 0
+
+		for zone, zoneHour in hours.iteritems():
+			zoneDict[zone] = sum(zoneHour.values())
+			for month, hour in zoneHour.iteritems():
+				monthDict[month] += hour
+
+		self.genieprocdb.store('actuated_hours_per_zone', zoneDict)
+		self.genieprocdb.store('actuated_hours_per_month', monthDict)
 	
 	def process_all_data(self):
 		print "Start processing all data"
@@ -553,3 +587,5 @@ class processor:
 	
 		self.proc_genie_weighted_setpnt_dev(ForceFlag, GenieFlag)
 		self.proc_genie_weighted_setpnt_dev(ForceFlag, ThermFlag)
+		self.proc_freq_err_wcads(ForceFlag)
+		self.proc_genie_actuated_hours()

@@ -153,6 +153,64 @@ class loganal:
 		self.genielogdb.store('setpoint_count_per_user', setpntDict)
 		self.genielogdb.store('actuate_count_per_user', actuDict)
 
+	def calc_user_feedback(self):
+		avgDict = defaultdict(float)
+		sqrDict = defaultdict(float)
+		cntDict = defaultdict(float)
+		stdDict = defaultdict(float)
+		posAvgDict = defaultdict(float)
+		negAvgDict = defaultdict(float)
+		posSqrDict = defaultdict(float)
+		posCntDict = defaultdict(float)
+		posStdDict = defaultdict(float)
+		negSqrDict = defaultdict(float)
+		negCntDict = defaultdict(float)
+		negStdDict = defaultdict(float)
+		totalNeg = 0
+		totalPos = 0
+
+		for log in self.logList:
+			if log['webpage']=='feedback':
+				username = log['username']
+				comfort = float(log['comfort'])
+				avgDict[username] += comfort
+				sqrDict[username] += comfort * comfort
+				cntDict[username] += 1.0
+				if comfort>0:
+					posAvgDict[username] += comfort
+					posSqrDict[username] += comfort * comfort
+					posCntDict[username] += 1.0
+					totalPos += comfort
+				elif comfort<0:
+					negAvgDict[username] += comfort
+					negSqrDict[username] += comfort * comfort
+					negCntDict[username] += 1.0
+					totalNeg += comfort
+		print 'avg of pos: ', str(totalPos/sum(posCntDict.values()))
+		print 'avg of neg: ', str(totalNeg/sum(negCntDict.values()))
+		print 'avg of total: ', str(sum(avgDict.values())/sum(cntDict.values()))
+		print '# of feedback', str(sum(cntDict.values()))
+		print '# of pos feedback: ', str(sum(posCntDict.values()))
+		print '# of neg feedback: ', str(sum(negCntDict.values()))
+					
+		for username, value in avgDict.iteritems():
+			avgDict[username] = value / cntDict[username]
+			stdDict[username] = sqrDict[username]/cntDict[username] - avgDict[username]*avgDict[username]
+		for username, value in posAvgDict.iteritems():
+			posAvgDict[username] = value / posCntDict[username]
+			posStdDict[username] = posSqrDict[username]/posCntDict[username] - posAvgDict[username]*posAvgDict[username]
+		for username, value in negAvgDict.iteritems():
+			negAvgDict[username] = value / negCntDict[username]
+			negStdDict[username] = negSqrDict[username]/negCntDict[username] - negAvgDict[username]*negAvgDict[username]
+		self.genielogdb.store('feedback_avg_per_user', avgDict)
+		self.genielogdb.store('feedback_std_per_user', stdDict)
+		self.genielogdb.store('feedback_cnt_per_user', cntDict)
+		self.genielogdb.store('feedback_pos_avg_per_user', posAvgDict)
+		self.genielogdb.store('feedback_pos_std_per_user', posStdDict)
+		self.genielogdb.store('feedback_pos_cnt_per_user', posCntDict)
+		self.genielogdb.store('feedback_neg_avg_per_user', negAvgDict)
+		self.genielogdb.store('feedback_neg_std_per_user', negStdDict)
+		self.genielogdb.store('feedback_neg_cnt_per_user', negCntDict)
 
 
 

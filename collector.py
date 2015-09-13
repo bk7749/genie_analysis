@@ -35,7 +35,7 @@ class collector():
 	genierawdb = None
 	thermrawdb = None
 	generaldb = None
-	beginTime = datetime(2013,12,1,0,0,0)
+	beginTime = datetime(2013,10,15,0,0,0)
 	endTime = datetime(2015,6,25,22,0,0)
 	confrooms = ['2109', '2217', '3109', '3127', '4109', '4217']
 	normrooms = ['2150']
@@ -208,6 +208,9 @@ class collector():
 					dropList.append(idx)
 					prevDay = tp.day
 					continue
+			if val==-1:
+				dropList.append(idx)
+				continue
 				
 			if not tp.weekday() in [5,6]:
 				if not oneFlag and val==1:
@@ -519,7 +522,11 @@ class collector():
 			entireWcadData[zone] = wcad
 			if len(wcad)<=0:
 				continue
-			wcad = self.diff_list(wcad, False, False, 0.3)
+			relativeThreshold = (max(wcad['value'])-min(wcad['value']))/10
+			if relativeThreshold<=0.2:
+				relativeThreshold = 0.2
+#			wcad = self.diff_list(wcad, False, False, 0.3)
+			wcad = self.diff_list(wcad, False, False, relativeThreshold)
 			for row in wcad.iterrows():
 				tp = row[1]['timestamp']
 				if tp>=datetime(2014,6,30,3,0,0,tzinfo=self.pst) and tp <=datetime(2014,6,30,9,0,0,0,tzinfo=self.pst):
@@ -546,10 +553,10 @@ class collector():
 		self.thermrawdb.store('wcad_diff_per_zone', wcadDiffFiltered)
 
 #		entireSetpntData = self.wcad_to_setpnt(entireWcadDataFiltered)
-		#setpntAvg, setpntStd = self.calc_avg_std(entireSetpntData)
-		#print setpntAvg, setpntStd
-		#self.generaldb.store('therm_setpoint_dev_avg', setpntAvg)
-		#self.generaldb.store('therm_setpoint_dev_std', setpntStd)
+		setpntAvg, setpntStd = self.calc_avg_std(wcadData)
+		print setpntAvg, setpntStd
+		self.generaldb.store('therm_setpoint_dev_avg', setpntAvg)
+		self.generaldb.store('therm_setpoint_dev_std', setpntStd)
 
 		setpntData = self.wcad_to_setpnt(wcadDataFiltered)
 		self.thermrawdb.store('estimated_setpoint_per_zone', setpntData)
@@ -766,7 +773,7 @@ class collector():
 			return None
 
 		defaultZoneEnergy = dict()
-		for i in range(12,31): # dec/2013 is 12, jul/2015 is 31
+		for i in range(10,31): # dec/2013 is 12, jul/2015 is 31
 			defaultZoneEnergy[i] = 0
 
 		zoneEnergies = dict()
@@ -789,11 +796,6 @@ class collector():
 				val = row[1]['value']
 				monthCnt = (tp.year-2013)*12 + tp.month
 				if monthCnt == 31:
-					pass
-				if monthCnt==11:
-					prevTP = tp
-					continue
-				if monthCnt==-11:
 					pass
 				zoneEnergy[monthCnt] += (tp-prevTP).total_seconds()*val
 				if tp.weekday()<=4 and tp.hour>=7 and tp.hour<=18:
@@ -820,7 +822,7 @@ class collector():
 		
 		actuHoursDict = dict()
 		defaultActuHours = dict()
-		for i in range(12,31):
+		for i in range(10,31):
 			defaultActuHours[i] = 0.0
 
 		for zone in self.geniezonelist:
@@ -832,6 +834,8 @@ class collector():
 				for row in offtimes.iterrows():
 					tp = row[1]['timestamp']
 					val = row[1]['value']
+#					if not (tp.year==2013 and tp.hour==20 and tp.minute==20 and tp.second==58):
+#						continue
 					if val != 'None':
 						val = val.split('-07:00')[0]
 						val = val.split('-08:00')[0]
@@ -843,9 +847,9 @@ class collector():
 							filteredActuIdx = np.logical_and(np.logical_and(actuate['timestamp']<=offTime, actuate['timestamp']>tp), actuate['value']==1)
 							newActu = actuate.iloc[filteredActuIdx.values.tolist()]
 							if len(newActu)>0:
-								offTime = newActu.tail(1)['timestamp']
+								offTime = newActu.tail(1)['timestamp'].values[0]
 
-						hours = (offTime-tp).total_seconds()
+						hours = (offTime-tp).total_seconds()/3600
 						actuHours[(tp.year-2013)*12+tp.month] += hours
 			actuHoursDict[zone] = actuHours
 
@@ -986,25 +990,26 @@ class collector():
 		#self.collect_energy_diff(forceFlag, ThermFlag, timedelta(days=1))
 		print "Finish calculating thermostat energy difference"
 
-		#self.collect_power(forceFlag)
+		self.collect_power(forceFlag)
 		
 		#self.collect_occ_samples(forceFlag)
 		print "FInish collect6ing samples of OCC to compare calendar"
 
+#TODO Debug this function
 		#self.collect_genie_actuated_hours(forceFlag)
 
 		self.collect_temp_vs_setpnt(forceFlag, GenieFlag)
 		self.collect_temp_vs_setpnt(forceFlag, ThermFlag)
 		self.collect_flow_vs_setpoint(forceFlag, GenieFlag)
 		self.collect_flow_vs_setpoint(forceFlag, ThermFlag)
-		self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2140')
-		self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2150')
-		self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2272')
-		self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '3202')
-		self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '2146')
-		self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '4114')
-		self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '3140')
-		self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '4150')
+		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2140')
+		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2150')
+		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '2272')
+		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, GenieFlag, '3202')
+		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '2146')
+		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '4114')
+		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '3140')
+		#self.collect_flow_temp_vs_setpoint_zone(forceFlag, ThermFlag, '4150')
 
 		self.collect_genie_zone_activity()
 		self.collect_energy_diff(forceFlag, GenieFlag, timedelta(hours=2))
