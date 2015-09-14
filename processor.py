@@ -548,6 +548,18 @@ class processor:
 
 		self.genieprocdb.store('actuated_hours_per_zone', zoneDict)
 		self.genieprocdb.store('actuated_hours_per_month', monthDict)
+
+	def proc_therm_redundant_temp_occ(self):
+		redTempOccDict= self.thermrawdb.load('redundant_temp_occ_sts')
+		tempOccDict = self.thermrawdb.load('temp_occ_sts')
+		redOccCnt = 0
+		occCnt = 0
+		for occ in tempOccDict.values():
+			occCnt += len(occ)
+		for redOcc in redTempOccDict.values():
+			redOccCnt += len(redOcc)
+		
+		print "redundant temp occ ratio: ", str(float(redOccCnt)/float(occCnt))
 	
 	def process_all_data(self):
 		print "Start processing all data"
@@ -589,3 +601,4 @@ class processor:
 		self.proc_genie_weighted_setpnt_dev(ForceFlag, ThermFlag)
 		self.proc_freq_err_wcads(ForceFlag)
 		self.proc_genie_actuated_hours()
+		self.proc_therm_redundant_temp_occ()
