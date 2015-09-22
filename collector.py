@@ -16,6 +16,7 @@ from pytz import timezone
 import math
 import dateutil
 from copy import deepcopy
+import ast
 
 # Description for each data in db
 # GENIE
@@ -697,7 +698,6 @@ class collector():
 
 		self.genierawdb.store('occ_samples', occ_samples)
 
-
 	#return current temperature or flow near tp)
 	# sensorType should be one of 'Zone Temperature' and 'Supply Air Flow'
 	def get_temp_flow_point(self, zone, tp, sensorType):
@@ -989,6 +989,27 @@ class collector():
 				redundantTempOccDict[zone] = redundantTempOccList
 		self.thermrawdb.store('redundant_temp_occ_sts', redundantTempOccDict)
 	
+	def collect_user_feedback(self):
+		feedbackDict = dict()
+		userDict = dict()
+		for zone in self.geniezonelist:
+			userDict[zone] = self.bdm.download_sensorpoints(zone)
+
+		self.genierawdb.store('user_id_list', userDict)
+
+		for zone, userlist in userDict.iteritems():
+			for user in userlist:
+				feedback = self.bdm.download_dataframe('Occupant Sensation', user, zone, self.beginTime, self.endTime)
+				g = lambda val:int(ast.literal_eval(val)['feeling'])
+				try:
+					feedback['value'] = feedback['value'].apply(g)
+					feedbackDict[user] = feedback
+				except:
+					pass
+
+		self.genierawdb.store('user_feedback', feedbackDict)
+
+	
 	def collect_all_data(self, forceFlag):
 #		forceFlag = True
 		GenieFlag = True
@@ -1038,5 +1059,5 @@ class collector():
 		#self.collect_genie_zone_activity()
 		#self.collect_energy_diff(forceFlag, GenieFlag, timedelta(hours=2))
 		#self.collect_energy_diff(forceFlag, ThermFlag, timedelta(hours=2))
-		self.collect_temp_occ()
-		self.collect_temp_occ_while_oc()
+		#self.collect_temp_occ()
+		#self.collect_temp_occ_while_oc()

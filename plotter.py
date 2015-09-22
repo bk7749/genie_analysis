@@ -9,6 +9,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import math
+from pytz import timezone
 
 #class plotter:
 # dataSeries (2-dimensional np.ndarray), figSize (tuple, length=2) -> fig
@@ -19,6 +20,8 @@ import math
 # Variable details:
 # tickRanges: np.arange, contains tick numbers
 # tickTags: list of tick name, contains tick names
+
+pst = timezone("US/Pacific")
 
 
 def save_fig(fig, name):
@@ -37,7 +40,7 @@ def save_fig(fig, name):
 # dataSeries[1] and dataSereis[2] should be stacked on same bar
 # dataSeries[3] and dataSereis[4] should be stacked on same bar
 # Other details should be implemented in inheritor
-def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, ylim=None, linewidth=0.2, xtickRotate=None, legendLoc='best', hatchSeries=None, eclist=None, oneBlockWidth=0.8):
+def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, xtickRange=None, xtickTag=None, ytickRange=None, ytickTag=None, title=None, stdSeries=None, axis=None, fig=None, clist=None, dataLabels=None, ylim=None, linewidth=0.2, xtickRotate=None, legendLoc='best', hatchSeries=None, eclist=None, oneBlockWidth=0.8, ytickNum=None):
 	barNum = len(dataSeries)/(stackNum+1)
 	totalBlockWidth = 0.8
 	#oneBlockWidth = float(0.8/float(barNum))
@@ -111,7 +114,7 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 	
 	#plt.xlim(x[0]-1,x[len(x)-1]+1)
 	axis.set_xlim(x[0]-1,x[len(x)-1]+1)
-	if ylim:
+	if ylim != None:
 		axis.set_ylim(ylim)
 	if ylabel:
 		axis.set_ylabel(ylabel, labelpad=-0.5)
@@ -138,6 +141,11 @@ def plot_multiple_stacked_bars(dataSeries, stackNum, xlabel=None, ylabel=None, x
 		#plt.yticks(ytickRange, ytickTag, fontsize=10)
 		axis.set_yticks(ytickRange)
 		axis.set_yticklabels(ytickTag, fontsize=8)
+	
+	if ytickTag==None and ytickNum!=None:
+		ytickRange = np.arange(0,max(dataSeries[0])+1, max(dataSeries[0])/ytickNum)
+		axis.set_yticks(ytickRange)
+			
 	if title:
 		#plt.title(title)
 		axis.set_title(title, y=1.08)
@@ -211,15 +219,15 @@ def plot_colormap_upgrade(data, figSizeIn, xlabel, ylabel, cbarlabel, cmapIn, yt
 	return fig
 
 # x (list of np.array(datetime)), y (list of np.array(number)) -> fig 
-def plot_multiple_timeseries(xs, ys, xlabel, ylabel, xticks=None, xtickTags=None, yticks=None, ytickTags=None, titles=None):
+def plot_multiple_timeseries(xs, ys, xlabel, ylabel, xticks=None, xtickTags=None, yticks=None, ytickTags=None, titles=None, xtickRotate=None, dateFormat=None,color=None):
 	dataNum = len(ys)
 	fig, axes = plt.subplots(dataNum)
 	for i, axis in enumerate(axes):
 		#plt.xticks(rotation='70')
-		axis.plot_date(xs[i], ys[i], linestyle='-', marker='None')
+		axis.plot_date(xs[i], ys[i], linestyle='-', marker='None',tz=pst, color=color)
 		axis.set_xlabel(xlabel)
 		axis.set_ylabel(ylabel)
-		axis.set_ylim([0.9,3.1])
+#		axis.set_ylim([0.9,3.1])
 		if xticks:
 			axis.set_xticks(xticks[i])
 		if xtickTags:
@@ -230,8 +238,16 @@ def plot_multiple_timeseries(xs, ys, xlabel, ylabel, xticks=None, xtickTags=None
 			axis.set_yticklabels(ytickTags[i])
 		if titles:
 			axis.set_title(titles[i])
-	plt.subplots_adjust(hspace=1)
-	plt.show()
+		if xtickRotate != None:
+			xtickLabel = axis.get_xticklabels()
+			axis.set_xticklabels(xtickLabel, rotation=xtickRotate, fontsize=8)
+		#fig.autofmt_xdate()
+		if dateFormat!=None:
+			axis.xaxis.set_major_formatter(dateFormat)
+
+
+	fig.subplots_adjust(hspace=0.4)
+	#fig.autofmt_xdate()
 	return fig, axes
 
 def plot_multiple_2dline(x, ys, xlabel=None, ylabel=None, xtick=None, xtickLabel = None, ytick=None, ytickLabel=None, title=None, axis=None, fig=None, ylim=None, dataLabels=None):

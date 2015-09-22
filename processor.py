@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import operator
 from pytz import timezone
+import math
 		
 
 class processor:
@@ -123,7 +124,6 @@ class processor:
 		commonsetpntEndTime = datetime(2014,10,1,0,0,0)
 
 		for zone in localZoneList:
-			print zone
 			try:
 				setpnts = setpntDict[zone]	
 			except:
@@ -190,6 +190,10 @@ class processor:
 		for zone in localZoneList:
 			setpntDiffZone[zone] = []
 
+		total = 0
+		sqrTotal = 0
+		cnt = 0
+
 		for zone, setpntDiff in setpntDiffs.iteritems():
 			if zone in errorZones:
 				continue
@@ -199,6 +203,18 @@ class processor:
 				setpntDiffZone[zone].append(val)
 				setpntDiffMonth[(tp.year-2013)*12+tp.month].append(val)
 				setpntDiffHour[tp.hour].append(val)
+				total += val
+				sqrTotal += val*val
+				cnt += 1
+
+		avg = total/cnt
+		std = math.sqrt((sqrTotal/cnt)-avg*avg)
+
+		if genieFlag:
+			print "Genie's setdev stat: ", avg, std
+		else:
+			print "Therm's setdev stat: ", avg, std
+
 
 		if genieFlag:
 			procdb.store('setpoint_diff_per_zone', setpntDiffZone)
@@ -253,10 +269,16 @@ class processor:
 		totalEnergyMonth = defaultdict(float)
 		totalEnergyHour = defaultdict(float)
 		totalEnergyZone = defaultdict(float)
+		sqrTotalEnergyMonth = defaultdict(float)
+		sqrTotalEnergyHour = defaultdict(float)
+		sqrTotalEnergyZone = defaultdict(float)
+		cntMonth = defaultdict(float)
+		cntHour = defaultdict(float)
+		cntZone = defaultdict(float)
 		# List init
 		for zone in localZoneList:
 			totalEnergyZone[zone] = 0
-		for month in range(12,31):
+		for month in range(10,31):
 			totalEnergyMonth[month] = 0
 		for hour in range(0,24):
 			totalEnergyHour[hour] = 0
@@ -275,11 +297,50 @@ class processor:
 			totalEnergyMonth[localMonth] += energyDiff
 			totalEnergyZone[zone] += energyDiff
 			totalEnergyHour[tp.hour] += energyDiff 
+			sqrTotalEnergyMonth[localMonth] += energyDiff * energyDiff
+			sqrTotalEnergyZone[zone] += energyDiff * energyDiff
+			sqrTotalEnergyHour[tp.hour] += energyDiff * energyDiff
+			cntMonth[localMonth] += 1
+			cntZone[zone] += 1
+			cntHour[tp.hour] += 1
+		avgEnergyMonth = defaultdict(float)
+		avgEnergyHour = defaultdict(float)
+		avgEnergyZone = defaultdict(float)
+		stdEnergyMonth = defaultdict(float)
+		stdEnergyHour = defaultdict(float)
+		stdEnergyZone = defaultdict(float)
+		for month in range(10,31):
+			if cntMonth[month]==0:
+				avgEnergyMonth[month] = 0
+				stdEnergyMonth[month] = 0
+			else:
+				avgEnergyMonth[month] = totalEnergyMonth[month] / cntMonth[month]
+				stdEnergyMonth[month] = math.sqrt(sqrTotalEnergyMonth[month]/cntMonth[month] - avgEnergyMonth[month]*avgEnergyMonth[month])
+		for hour in range(0,24):
+			if cntHour[hour]==0:
+				avgEnergyHour[hour] = 0 
+				stdEnergyHour[hour] = 0
+			else:
+				avgEnergyHour[hour] = totalEnergyHour[hour] / cntHour[hour]
+				stdEnergyHour[hour] = math.sqrt(sqrTotalEnergyHour[hour]/cntHour[hour] - avgEnergyHour[hour]*avgEnergyHour[hour])
+		for zone in localZoneList:
+			if cntZone[zone]==0:
+				avgEnergyZone[zone] = 0
+				stdEnergyZone[zone] = 0
+			else:
+				avgEnergyZone[zone] = totalEnergyZone[zone] / cntZone[zone]
+				stdEnergyZone[zone] = math.sqrt(sqrTotalEnergyZone[zone]/cntZone[zone] - avgEnergyZone[zone]*avgEnergyZone[zone])
 
-		sortedTotalEnergyZone = OrderedDict(sorted(totalEnergyZone.items(), key=operator.itemgetter(1)))
-		db.store('setpnt_energy_diff_zone_'+str(timeDiff.total_seconds()/3600), sortedTotalEnergyZone)
-		db.store('setpnt_energy_diff_month_'+str(timeDiff.total_seconds()/3600), totalEnergyMonth)
-		db.store('setpnt_energy_diff_hour_'+str(timeDiff.total_seconds()/3600), totalEnergyHour)
+		sortedAvgEnergyZone = OrderedDict(sorted(avgEnergyZone.items(), key=operator.itemgetter(1)))
+		sortedStdEnergyZone = OrderedDict()
+		for zone in sortedAvgEnergyZone.keys():
+			sortedStdEnergyZone[zone] = stdEnergyZone[zone]
+		db.store('setpnt_energy_diff_zone_'+str(timeDiff.total_seconds()/3600), sortedAvgEnergyZone)
+		db.store('setpnt_energy_diff_month_'+str(timeDiff.total_seconds()/3600), avgEnergyMonth)
+		db.store('setpnt_energy_diff_hour_'+str(timeDiff.total_seconds()/3600), avgEnergyHour)
+		db.store('setpnt_energy_diff_std_zone_'+str(timeDiff.total_seconds()/3600), sortedStdEnergyZone)
+		db.store('setpnt_energy_diff_std_month_'+str(timeDiff.total_seconds()/3600), stdEnergyMonth)
+		db.store('setpnt_energy_diff_std_hour_'+str(timeDiff.total_seconds()/3600), stdEnergyHour)
 
 	def proc_energy_change(self, forceFlag, genieFlag):
 		if genieFlag:
@@ -561,6 +622,91 @@ class processor:
 		
 		print "redundant temp occ ratio: ", str(float(redOccCnt)/float(occCnt))
 	
+	def proc_range_wcad_active_therm_zones(self):
+		wcads = self.thermrawdb.load('wcad_diff_per_zone')
+		errorZones = self.thermrawdb.load('wcad_error_zone_list')
+		largeRangeCnt = 0
+		wcadsNum = self.thermprocdb.load('wcad_per_zone')
+		activeZones = list()
+		for zone, num in wcadsNum.iteritems():
+			if zone in errorZones or num==0:
+				continue
+			if num>=105:
+				activeZones.append(zone)
+				continue
+			wcad = wcads[zone]['value']
+			if len(wcad)==0:
+				continue
+			minVal = min(wcad)
+			maxVal = max(wcad)
+			if maxVal-minVal>2:
+				largeRangeCnt += 1
+		minSum = 0
+		maxSum = 0
+		for zone in activeZones:
+			minVal = min(wcads[zone]['value'])
+			maxVal = max(wcads[zone]['value'])
+			newMin = minVal - (maxVal+minVal)/2
+			newMax = maxVal - (maxVal+minVal)/2
+			maxSum += newMax
+			minSum += newMin
+		print "Thermostat range is between: ", minSum/len(activeZones), maxSum/len(activeZones)
+		print "Large Range therm zones: ", largeRangeCnt
+	
+	def proc_genie_feedback(self):
+		feedbackDict = self.genierawdb.load('user_feedback')
+		avgDict = defaultdict(float)
+		sqrDict = defaultdict(float)
+		cntDict = defaultdict(float)
+		stdDict = defaultdict(float)
+		posAvgDict = defaultdict(float)
+		negAvgDict = defaultdict(float)
+		posSqrDict = defaultdict(float)
+		posCntDict = defaultdict(float)
+		posStdDict = defaultdict(float)
+		negSqrDict = defaultdict(float)
+		negCntDict = defaultdict(float)
+		negStdDict = defaultdict(float)
+		totalNeg = 0
+		totalPos = 0
+
+		for username, feedbacks in feedbackDict.iteritems():
+			for row in feedbacks.iterrows():
+				comfort = row[1]['value']
+				avgDict[username] += comfort
+				sqrDict[username] += comfort * comfort
+				cntDict[username] += 1.0
+				if comfort>0:
+					posAvgDict[username] += comfort
+					posSqrDict[username] += comfort * comfort
+					posCntDict[username] += 1.0
+					totalPos += comfort
+				elif comfort<0:
+					negAvgDict[username] += comfort
+					negSqrDict[username] += comfort * comfort
+					negCntDict[username] += 1.0
+					totalNeg += comfort
+		print 'avg of pos: ', str(totalPos/sum(posCntDict.values()))
+		print 'avg of neg: ', str(totalNeg/sum(negCntDict.values()))
+		print 'avg of total: ', str(sum(avgDict.values())/sum(cntDict.values()))
+		print '# of feedback', str(sum(cntDict.values()))
+		print '# of pos feedback: ', str(sum(posCntDict.values()))
+		print '# of neg feedback: ', str(sum(negCntDict.values()))
+					
+		for username, value in avgDict.iteritems():
+			avgDict[username] = value / cntDict[username]
+			stdDict[username] = sqrDict[username]/cntDict[username] - avgDict[username]*avgDict[username]
+		for username, value in posAvgDict.iteritems():
+			posAvgDict[username] = value / posCntDict[username]
+			posStdDict[username] = posSqrDict[username]/posCntDict[username] - posAvgDict[username]*posAvgDict[username]
+		for username, value in negAvgDict.iteritems():
+			negAvgDict[username] = value / negCntDict[username]
+			negStdDict[username] = negSqrDict[username]/negCntDict[username] - negAvgDict[username]*negAvgDict[username]
+
+		print "End"
+
+		
+	
 	def process_all_data(self):
 		print "Start processing all data"
 		ForceFlag = True
@@ -602,3 +748,4 @@ class processor:
 		self.proc_freq_err_wcads(ForceFlag)
 		self.proc_genie_actuated_hours()
 		self.proc_therm_redundant_temp_occ()
+		self.proc_range_wcad_active_therm_zones()

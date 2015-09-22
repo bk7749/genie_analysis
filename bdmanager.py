@@ -77,6 +77,24 @@ class bdmanager:
 		
 		return None
 
+	def download_sensorpoints(self, zone):
+		template = 'Occupant Sensation'
+		payload = {'context': '{"room":"' + 'rm-'+ zone + '", "template":"'+template+'"}'}
+		resp = requests.get(self.srcUrlBase, params=payload, auth=self.srcUrlOptions, timeout=10)
+		sensorPointList = list()
+		#ts = pd.
+		if resp.status_code ==200:
+			resp = resp.json()
+			sensors = resp['sensors']
+			sensor = sensors[0]
+			uuid = sensor['uuid']
+			url = self.srcUrlBase + '/' + uuid + '/sensorpoints'
+			sensorResp = requests.get(url, auth=self.srcUrlOptions, timeout=15)
+			sensorResp = sensorResp.json()
+			sensorResp = sensorResp['sensorpoints']
+			for sensorpoint in sensorResp:
+				sensorPointList.append(sensorpoint['description'])
+		return sensorPointList
 
 	# template (str), sensorpoint type (str), zone number (str), beginTime (datetime), endTime (datetime) -> raw ts data (list of dict)
 	def download_raw(self, template, sensorpoint, zone, beginTime, endTime):
