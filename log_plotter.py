@@ -2,6 +2,7 @@ import plotter
 reload(plotter)
 from localdb import localdb
 from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.gridspec as gridspec
 import matplotlib.patches as patches
 import matplotlib.colors as col
 import matplotlib.cm as cm
@@ -105,12 +106,13 @@ class log_plotter:
 		#axis1.text(1, 10, 'Short-term User')
 		#axis2.text(1, 10, 'Sporadic User')
 		#axis3.text(1, 10, 'Consistent User')
-		axis1.text(1, 11, 'Short-term User', bbox=dict(fill=False, color='black'))
-		axis2.text(1, 11, 'Sporadic User', bbox=dict(fill=False, color='black'))
-		axis3.text(1, 11, 'Consistent User', bbox=dict(fill=False, color='black'))
+		axis1.text(1, 11, 'Short-term User', bbox=dict(fill=False, color='black'), size=7)
+		axis2.text(1, 11, 'Sporadic User', bbox=dict(fill=False, color='black'), size=7)
+		axis3.text(1, 11, 'Consistent User', bbox=dict(fill=False, color='black'), size=7)
+		fig.set_size_inches((4,3))
 		plotter.save_fig(fig, self.figdir+'users/compare_user_activities' + '.pdf')
 
-	def plot_an_user_activity(self, username, figGiven=None, axis=None, ylim=(0,60), xtickFlag=True, title=None, legends=['Setpoints', 'Actautes'], ytickTag=None, ytickRange=None):
+	def plot_an_user_activity(self, username, figGiven=None, axis=None, ylim=(0,60), xtickFlag=True, title=None, legends=['Setpoints', 'Actuation'], ytickTag=None, ytickRange=None):
 		setpoint = self.genielogdb.load('setpoint_per_user')[username]
 		actuate = self.genielogdb.load('actuate_per_user')[username]
 
@@ -144,15 +146,16 @@ class log_plotter:
 			fig, axis = plt.subplots(1,1)
 		else:
 			fig = figGiven
-		clist = ['skyblue','peachpuff']
-		hatch = ['\\\\\\','///']
+		clist = ['skyblue','darkolivegreen']
+#		hatch = ['//','']
+		hatch = None
 		#ylim = (0,60)
 		figsize = self.figsize
 
 		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, axis=axis, dataLabels=legends, linewidth=linewidth, clist=clist, xtickTag=xtickLabel, ylim=ylim, hatchSeries=hatch, title=title, ytickTag=ytickTag, ytickRange=ytickRange)
 		greyRect = patches.Rectangle((6.5,0), 5,70, alpha=0.1)
 		axis.add_patch(greyRect)
-		axis.text(7, ylim[1]/2, 'Lost Data')
+		axis.text(6.7, ylim[1]/2, 'Data Unavailable', fontsize=6)
 
 		if figGiven==None:
 			fig.set_size_inches(figsize)
@@ -186,7 +189,7 @@ class log_plotter:
 		ylabel2 = '# of feedback'
 		xlabel = 'user'
 
-		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel1, axis=axis1, clist=clist, xtickTag=xtickLabel, ylim=ylim, hatchSeries=hatch, title=title, ytickTag=ytickTag, ytickRange=ytickRange, stdSeries=yerrData)
+		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel1, axis=axis1, clist=clist, xtickTag=xtickLabel, ylim=(-3.5,3.5), hatchSeries=hatch, title=title, ytickTag=ytickTag, ytickRange=ytickRange, stdSeries=yerrData)
 		plotter.plot_multiple_stacked_bars([cntList], 0, xlabel=xlabel, ylabel=ylabel2, axis=axis2, clist=clist, xtickTag=xtickLabel, ylim=ylim, hatchSeries=hatch, title=title, ytickTag=ytickTag, ytickRange=ytickRange)
 			
 	#	fig.set_size_inches(figsize)
@@ -227,24 +230,32 @@ class log_plotter:
 				negAvgList.append(negAvgDict[key])
 				cntList.append(cntDict[key])
 
-		fig, [axis1, axis2] = plt.subplots(2,1)
-		clist = ['navy', 'peachpuff']
+		#fig, [axis1, axis2] = plt.subplots(2,1, sharex=True)
+		#fig.set_size_inches((4,3))
+		fig = plt.figure(figsize=(4,2))
+		gs = gridspec.GridSpec(2,1,height_ratios=[3,1])
+		axis1 = plt.subplot(gs[0])
+		axis2 = plt.subplot(gs[1])
+		clist = ['skyblue', 'darkolivegreen']
+		eclist = ['darkblue', 'darkgreen']
 		xtickLabel = None
-		ylim = None
+		ylim = (-3.5,3.5)
 		hatch = None
 		title = None
-		ytickTag = None
-		ytickRange = None
-		ylabel1 = 'average of negative \nand positive feedback'
-		ylabel2 = '# of feedback'
-		xlabel = 'user'
-		legend = ['+ Feedback', '- Feedback']
+		ytickTag = ['0','5','10','15']
+		ytickRange = [0,5,10,15]
+		ylabel1 = 'Average \nFeedback'
+		ylabel2 = '# Feedback'
+		xlabel = 'Genie User'
+		legend = ['+ Feedback', '$-$ Feedback']
+		linewidth = 0.1
+		blockwidth = 0.8
 
-		plotter.plot_up_down_bars(posAvgDict.values(), negAvgList, axis=axis1, upColor=clist[0],downColor=clist[1], upStd=posStdList, downStd=negStdList, xlabel=xlabel, ylabel=ylabel1, dataLabels=legend)
-		plotter.plot_multiple_stacked_bars([cntList], 0, xlabel=xlabel, ylabel=ylabel2, axis=axis2, clist=clist, xtickTag=xtickLabel, ylim=ylim, hatchSeries=hatch, title=title, ytickTag=ytickTag, ytickRange=ytickRange)
+		plotter.plot_up_down_bars(posAvgDict.values(), negAvgList, axis=axis1, upColor=clist[0],downColor=clist[1], upStd=posStdList, downStd=negStdList, xlabel=None, ylabel=ylabel1, dataLabels=legend, upEColor=eclist[0], downEColor=eclist[1], linewidth=linewidth, blockwidth=blockwidth, ylim=ylim)
+		plotter.plot_multiple_stacked_bars([cntList], 0, xlabel=xlabel, ylabel=ylabel2, axis=axis2, clist=clist, xtickTag=xtickLabel, hatchSeries=hatch, title=title, ytickTag=ytickTag, ytickRange=ytickRange)
 			
-	#	fig.set_size_inches(figsize)
 		fig.tight_layout()
+		fig.subplots_adjust(hspace=0.05)
 		plotter.save_fig(fig, self.figdir+'users/genie_user_feedback_updown.pdf')
 
 

@@ -814,6 +814,18 @@ class collector():
 		self.generaldb.store('zone_energy_per_month', zoneEnergies)
 		self.generaldb.store('zone_weekend_energy_per_month', zoneWeekendEnergies)
 		self.generaldb.store('zone_weekday_energy_per_month', zoneWeekdayEnergies)
+	
+	def collect_entire_power(self):
+		energyDict = dict()
+		for zone in self.zonelist:
+			energyDict[zone] = 0
+		
+		for zone in self.zonelist:
+			print zone
+			power = self.bdm.download_dataframe("HVAC Zone Power", 'total_zone_power', zone, self.beginTime, self.endTime)
+			energyDict[zone] = self.calc_energy(power)
+
+		self.generaldb.store('zone_entire_energy', energyDict)
 		
 	def collect_genie_actuated_hours(self, forceFlag):
 		genieActuateData = dict()
@@ -1007,6 +1019,59 @@ class collector():
 				except:
 					pass
 
+#		self.genierawdb.store('user_feedback', feedbackDict)
+
+		developers = ["sheimi@ucsd.edu", "hteraoka@eng.ucsd.edu", "bbalaji@ucsd.edu", " sheimi@ucsd.edu", " hteraoka@eng.ucsd.edu", " bbalaji@ucsd.edu", "sheimi+test@eng.ucsd.edu", "sheimi+genie-demo@eng.ucsd.edu", "sheimi+demo@eng.ucsd.edu"]
+		
+		#reader = shelve.open('data/genieraws.shelve')
+		#feedbackDict = reader['user_feedback']
+		#userlist = reader['user_id_list']
+		#reader.close()
+		#fp = open('metadata/userlist.csv', 'wb')
+		#for zone, users in userlist.iteritems():
+		#	for user in users:
+		#		fp.write(user+'\n')
+		#
+		#self.genierawdb.store('user_id_list', userDict)
+		
+		feedbackMap = dict()
+		feedbackMap['Cold'] = -3
+		feedbackMap['Cool'] = -2
+		feedbackMap['Slightly Cool'] = -1
+		feedbackMap['Good'] = 0
+		feedbackMap['Slightly Warm'] = 1
+		feedbackMap['Warm'] = 2
+		feedbackMap['Hot'] = 3
+		
+		usermap = pd.read_excel(open('metadata/user_map.xlsx','rb'))
+		feedbackList = pd.read_excel(open('metadata/user_feedback_genie.xlsx','rb'))
+		for row in feedbackList.iterrows():
+			name = row[1]['name']
+			email = usermap['email'][usermap['name']==name]
+			if len(email)==0:
+				continue
+			email = email[email.index[0]]
+			#if not email in userlist:
+			#	userlist.append(email)
+			time = row[1]['timestamp']
+			time = time.replace('.','',5)
+			tp = datetime.strptime(time, '%b %d, %Y, %I:%M %p')
+			feedback = feedbackMap[row[1]['feedback']]
+			feedback = pd.DataFrame(data={'timestamp':tp,'value':feedback}, index=[0])
+			if email in feedbackDict.keys():
+				newFeedback = feedbackDict[email]
+				newFeedback = newFeedback.append(feedback)
+				newFeedback.index = range(0,len(newFeedback))
+#				feedbackDict[email].append(feedback)
+#				feedbackDict[email].index = range(0,len(feedbackDict[email]))
+				feedbackDict[email] = newFeedback
+			else:
+				feedbackDict[email] = feedback
+		
+		for user in feedbackDict.keys():
+			if user in developers:
+				del feedbackDict[user]
+
 		self.genierawdb.store('user_feedback', feedbackDict)
 
 	
@@ -1061,3 +1126,5 @@ class collector():
 		#self.collect_energy_diff(forceFlag, ThermFlag, timedelta(hours=2))
 		#self.collect_temp_occ()
 		#self.collect_temp_occ_while_oc()
+	
+		self.collect_entire_power()

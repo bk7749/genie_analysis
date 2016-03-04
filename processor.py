@@ -14,6 +14,7 @@ import numpy as np
 import operator
 from pytz import timezone
 import math
+import scipy.stats as stats
 		
 
 class processor:
@@ -26,6 +27,7 @@ class processor:
 	thermprocdb = None
 	generaldb = None
 	genierawdb = None
+	genielogdb = None
 	thermrawdb = None
 	beginTime = None
 	endTime = None
@@ -44,6 +46,7 @@ class processor:
 		self.genieprocdb = localdb('genieprocessed.shelve')
 		self.thermprocdb = localdb('thermprocessed.shelve')
 		self.generaldb = localdb('general.shelve')
+		self.genielogdb = localdb('genielog.shelve')
 		self.notgenielist = list()
 		for zone in self.zonelist:
 			if zone not in self.geniezonelist:
@@ -99,11 +102,27 @@ class processor:
 
 		for zone in self.geniezonelist:
 			if not zone in setpntdevZone.keys():
-				setpntdevZone[zone] = 0
+				setpntdevZone[zone] = []
 
 		db.store('setpoint_dev_zone', setpntdevZone)
 		db.store('setpoint_dev_hour', setpntdevHour)
 		db.store('setpoint_dev_month', setpntdevMonth)
+	
+	def proc_setdev_anova(self):
+		genieSetdevDict = self.genieprocdb.load('setpoint_dev_zone')
+		thermSetdevDict = self.thermprocdb.load('setpoint_dev_zone')
+		genieSetdevList = list()
+		thermSetdevList = list()
+		for zone, setdevList in genieSetdevDict.iteritems():
+			genieSetdevList = genieSetdevList + setdevList
+		for zone, setdevList in thermSetdevDict.iteritems():
+			thermSetdevList = thermSetdevList + setdevList
+
+		fVal, pVal = stats.f_oneway(genieSetdevList, thermSetdevList)
+
+		print "setdev f-value and pvalue are: ", fVal, pVal
+
+
 
 	def proc_genie_weighted_setpnt_dev(self, forceFlag, genieFlag):
 		if genieFlag:
@@ -253,6 +272,70 @@ class processor:
 		self.thermprocdb.store('setpoint_dev_zone', wcadDevZone)
 		self.thermprocdb.store('setpoint_dev_hour', wcadDevHour)
 		self.thermprocdb.store('setpoint_dev_month', wcadDevMonth)
+	
+	def proc_setpoint_relative_energy(self, forceFlag, genieFlag, timeDiff):
+		if genieFlag:
+			db = self.genieprocdb
+			rawdb = self.genierawdb
+			localZoneList = self.geniezonelist
+		else:
+			db = self.thermprocdb
+			rawdb = self.thermrawdb
+			#localZoneList = self.zonelist
+			localZoneList = self.notgenielist
+
+		entireEnergyDiffList = list()
+		
+		setpntEnergy= rawdb.load('setpoint_energy_'+str(timeDiff.total_seconds()/3600))
+		totalEnergyZone = defaultdict(float)
+		sqrTotalEnergyZone = defaultdict(float)
+		cntZone = defaultdict(float)
+		# List init
+		for zone in localZoneList:
+			totalEnergyZone[zone] = 0
+
+		for row in setpntEnergy:
+			zone = row[0]
+			tp = row[1]
+			beforeEnergy = row[2]
+			afterEnergy = row[3]
+			if beforeEnergy==0 or afterEnergy==0:
+				continue
+			if zone=='3242' or not zone in localZoneList:
+				continue
+			if (tp.year-2013)*12+tp.month == 31:
+				continue
+			energyDiff  = (afterEnergy-beforeEnergy) / beforeEnergy * 100
+			entireEnergyDiffList.append(energyDiff)
+			totalEnergyZone[zone] += energyDiff
+			sqrTotalEnergyZone[zone] += energyDiff * energyDiff
+			cntZone[zone] += 1
+		avgEnergyZone = defaultdict(float)
+		stdEnergyZone = defaultdict(float)
+		for zone in localZoneList:
+			if cntZone[zone]==0:
+				avgEnergyZone[zone] = 0
+				stdEnergyZone[zone] = 0
+			else:
+				avgEnergyZone[zone] = totalEnergyZone[zone] / cntZone[zone]
+				stdEnergyZone[zone] = math.sqrt(sqrTotalEnergyZone[zone]/cntZone[zone] - avgEnergyZone[zone]*avgEnergyZone[zone])
+
+
+		entireAvg = np.mean(entireEnergyDiffList)
+		entireStd = np.std(entireEnergyDiffList)
+
+		if genieFlag:
+			print "Genie's energy change mean, std: "
+		else:
+			print "Therm's energy change mean, std: "
+		print entireAvg, entireStd
+
+		sortedAvgEnergyZone = OrderedDict(sorted(avgEnergyZone.items(), key=operator.itemgetter(1)))
+		sortedStdEnergyZone = OrderedDict()
+		for zone in sortedAvgEnergyZone.keys():
+			sortedStdEnergyZone[zone] = stdEnergyZone[zone]
+		db.store('setpnt_relative_energy_diff_zone_'+str(timeDiff.total_seconds()/3600), sortedAvgEnergyZone)
+		db.store('setpnt_relative_energy_diff_std_zone_'+str(timeDiff.total_seconds()/3600), sortedStdEnergyZone)
 
 	def proc_setpoint_energy(self, forceFlag, genieFlag, timeDiff):
 		if genieFlag:
@@ -265,7 +348,7 @@ class processor:
 			#localZoneList = self.zonelist
 			localZoneList = self.notgenielist
 		
-		setpntEnergy= rawdb.load('setpoint_energy_'+str(timeDiff.total_seconds()/3600))
+		setpntEnergy = rawdb.load('setpoint_energy_'+str(timeDiff.total_seconds()/3600))
 		totalEnergyMonth = defaultdict(float)
 		totalEnergyHour = defaultdict(float)
 		totalEnergyZone = defaultdict(float)
@@ -588,10 +671,28 @@ class processor:
 		endStds = np.std(endArray, axis=1)
 		dayStds = np.std(dayArray, axis=1)
 
+		dayZoneAvgs = np.mean(dayArray, axis=0)
+		endZoneAvgs = np.mean(endArray, axis=0)
+		dayZoneStd = np.std(dayArray, axis=0)
+		endZoneStd = np.std(endArray, axis=0)
+
+		if genieFlag:
+			print "Genie's energy averages (day, end) are: "
+		else:
+			print "Therm's energy averages (day, end) are: "
+		print np.mean(dayZoneAvgs), np.mean(endZoneAvgs)
+		
+		if genieFlag:
+			print "Genie's energy std (day, end) are: "
+		else:
+			print "Therm's energy std (day, end) are: "
+		print np.std(dayZoneAvgs), np.std(endZoneAvgs)
+
 		procdb.store('zone_weekend_energy_per_month_avg', endAvgs)
 		procdb.store('zone_weekday_energy_per_month_avg', dayAvgs)
 		procdb.store('zone_weekend_energy_per_month_std', endStds)
 		procdb.store('zone_weekday_energy_per_month_std', dayStds)
+		return dayZoneAvgs, endZoneAvgs
 
 	def proc_genie_actuated_hours(self):
 		hours = self.genierawdb.load('actuated_hours_per_zone')
@@ -628,6 +729,7 @@ class processor:
 		largeRangeCnt = 0
 		wcadsNum = self.thermprocdb.load('wcad_per_zone')
 		activeZones = list()
+		unstableActiveZones = 0
 		for zone, num in wcadsNum.iteritems():
 			if zone in errorZones or num==0:
 				continue
@@ -648,8 +750,13 @@ class processor:
 			maxVal = max(wcads[zone]['value'])
 			newMin = minVal - (maxVal+minVal)/2
 			newMax = maxVal - (maxVal+minVal)/2
+			if newMax>=1:
+				print newMax
+				unstableActiveZones +=1 
 			maxSum += newMax
 			minSum += newMin
+		print "# of active zones are: ", len(activeZones)
+		print "# of unstable active zones are: ", unstableActiveZones
 		print "Thermostat range is between: ", minSum/len(activeZones), maxSum/len(activeZones)
 		print "Large Range therm zones: ", largeRangeCnt
 	
@@ -703,7 +810,73 @@ class processor:
 			negAvgDict[username] = value / negCntDict[username]
 			negStdDict[username] = negSqrDict[username]/negCntDict[username] - negAvgDict[username]*negAvgDict[username]
 
-		print "End"
+		inactiveUsers = 0
+		for cnt in cntDict.values():
+			if cnt==1:
+				inactiveUsers += 1
+
+
+		print "Total users: ", len(cntDict)
+
+		print "Inactive users: ", inactiveUsers
+		
+		self.genielogdb.store('feedback_avg_per_user', avgDict)
+		self.genielogdb.store('feedback_std_per_user', stdDict)
+		self.genielogdb.store('feedback_cnt_per_user', cntDict)
+		self.genielogdb.store('feedback_pos_avg_per_user', posAvgDict)
+		self.genielogdb.store('feedback_pos_std_per_user', posStdDict)
+		self.genielogdb.store('feedback_pos_cnt_per_user', posCntDict)
+		self.genielogdb.store('feedback_neg_avg_per_user', negAvgDict)
+		self.genielogdb.store('feedback_neg_std_per_user', negStdDict)
+		self.genielogdb.store('feedback_neg_cnt_per_user', negCntDict)
+
+	def proc_feedback_anova(self):
+		feedbackTable = pd.read_excel(open('metadata/feedback_interview.xlsx','rb'))
+		fVal, pVal = stats.f_oneway(feedbackTable['therm'], feedbackTable['genie'])
+		print "Avg of therm feedback: ", np.mean(feedbackTable['therm'])
+		print "Std of therm feedback: ", np.std(feedbackTable['therm'])
+		print "Avg of genie feedback: ", np.mean(feedbackTable['genie'])
+		print "Std of genie feedback: ", np.std(feedbackTable['genie'])
+		print "Feedback Fval, Pval: ", fVal, pVal
+	
+	def proc_entire_energy(self):
+		energyDict = self.generaldb.load('zone_entire_energy')
+		areaDict = self.generaldb.load('area')
+		genieList = list()
+		thermList = list()
+		for zone in self.geniezonelist:
+			genieList.append(np.array(energyDict[zone])/3600/20/areaDict[zone])
+		for zone in self.notgenielist:
+			thermList.append(np.array(energyDict[zone])/3600/20/areaDict[zone])
+
+		print "Avg of genie energy: ", np.mean(genieList)
+		print "Std of genie energy: ", np.std(genieList)
+		print "Avg of therm energy: ", np.mean(thermList)
+		print "Std of therm energy: ", np.std(thermList)
+		print "fVal, pVal: ", stats.f_oneway(genieList, thermList)
+	
+	def proc_zone_temp(self):
+		startDate = datetime(2015,4,13,8)
+		dateList = [startDate + timedelta(days=0),
+					startDate + timedelta(days=1),
+					startDate + timedelta(days=2),
+					startDate + timedelta(days=3),
+					startDate + timedelta(days=4)]
+		beginHour = timedelta(hours=7)
+		endHour = timedelta(hours=18)
+		tempDict = dict()
+		meanDict = dict()
+		stdDict = dict()
+		for zone in self.zonelist:
+			frames = list()
+			for date in dateList:
+				frames.append(self.bdm.download_dataframe('Zone Temperature', 'PresentValue', zone, date+beginHour, date+endHour))
+			temp = pd.concat(frames)
+			meanDict[zone] = float(np.mean(temp))
+			stdDict[zone] = float(np.std(temp))
+		
+		self.thermprocdb.store('zone_temperature_week_avg', meanDict)
+		self.thermprocdb.store('zone_temperature_week_std', stdDict)
 
 		
 	
@@ -728,6 +901,8 @@ class processor:
 		
 		self.proc_setpoint_energy(ForceFlag, GenieFlag, timedelta(hours=2))
 		self.proc_setpoint_energy(ForceFlag, ThermFlag, timedelta(hours=2))
+		self.proc_setpoint_relative_energy(ForceFlag, GenieFlag, timedelta(hours=2))
+		self.proc_setpoint_relative_energy(ForceFlag, ThermFlag, timedelta(hours=2))
 
 		#3-1
 		self.proc_freq(ForceFlag, GenieFlag, 'actuate')
@@ -738,8 +913,12 @@ class processor:
 		self.proc_genie_setpnt_diff(ForceFlag, GenieFlag)
 		self.proc_genie_setpnt_diff(ForceFlag, ThermFlag)
 	
-		self.proc_energy(ForceFlag, GenieFlag)
-		self.proc_energy(ForceFlag, ThermFlag)
+		genieDayEnergy, genieEndEnergy = self.proc_energy(ForceFlag, GenieFlag)
+		thermDayEnergy, thermEndEnergy = self.proc_energy(ForceFlag, ThermFlag)
+		dayF, dayP = stats.f_oneway(genieDayEnergy, thermDayEnergy)
+		endF, endP = stats.f_oneway(genieEndEnergy, thermEndEnergy)
+		print "day fVal, pVal: ", dayF, dayP
+		print "end fVal, pVal: ", endF, endP
 	
 		self.proc_total_count(ForceFlag)
 	
@@ -749,3 +928,7 @@ class processor:
 		self.proc_genie_actuated_hours()
 		self.proc_therm_redundant_temp_occ()
 		self.proc_range_wcad_active_therm_zones()
+		self.proc_genie_feedback()
+		self.proc_setdev_anova()
+		self.proc_feedback_anova()
+		self.proc_entire_energy()

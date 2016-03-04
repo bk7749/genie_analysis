@@ -78,15 +78,18 @@ class genie_plotter:
 			sortedSetpntCounts.append(setpntCounts[key])
 
 		
+		ylim=(-4,4)
 		ylabel = u'Temperature Setpoint \nDifference ($^\circ$F)'
 		plotData = list()
 		plotData.append(np.array(sortedAvgs.values()))
 		stdData = list()
 		stdData.append(np.array(sortedStds))
 		clist = ['skyblue']
-		eclist= ['royalblue']
+		eclist= ['mediumaquamarine']
 		#fig = plotter.plot_multiple_stacked_bars(list().append(np.array(sortedAvgs.values())), (4,2), xlabel, ylabel, 0)
-		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, xtickTag=xtickTagIn, title=title, stdSeries=stdData, axis=axis, clist=clist, eclist=eclist)
+		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, xtickTag=xtickTagIn, title=title, stdSeries=stdData, axis=axis, clist=clist, eclist=eclist, ylim=ylim)
+		if axis!=None:
+			axis.set_xticklabels([])
 
 		return sortedSetpntCounts
 
@@ -235,16 +238,25 @@ class genie_plotter:
 		ylabelUsability = '# Changes'
 	
 		#fig, (ax1, ax2) = plt.subplots(2,1, sharex=True)
-		fig = plt.figure(figsize=(6,6))
-		gs = gridspec.GridSpec(2,1,height_ratios=[2,1])
+		fig = plt.figure()
+		figsize = (4,2)
+		fig.set_size_inches(figsize)
+		gs = gridspec.GridSpec(2,1,height_ratios=[3,1])
 		ax1 = plt.subplot(gs[0])
 		ax2 = plt.subplot(gs[1])
 		usability = self.plot_setpnt_dev_assist(setpntDev, sortedFlag, None, xtickTagIn=xtickTag, axis=ax1, title=title1)
 		plotData = [usability]
-		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=dataType, ylabel=ylabelUsability, xtickTag=xtickTag, axis=ax2, title=title2, clist=['skyblue'])
-		plt.subplots_adjust(hspace=0.2)
-		figsize = (4,3)
-		fig.set_size_inches(figsize)
+		if genieFlag and dataType=='zone':
+			ytickTag = ['0','150','300','450']
+			ytickRange = [0,150,300,450]
+		elif not genieFlag and dataType=='zone':
+			ytickTag = ['0','300','600']
+			ytickRange = [0,300,600]
+		else:
+			ytickTag=None
+			ytickRange=None
+		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=dataType, ylabel=ylabelUsability, xtickTag=xtickTag, axis=ax2, title=title2, clist=['darkolivegreen'], ytickTag=ytickTag, ytickRange=ytickRange)
+		plt.subplots_adjust(hspace=0.1)
 		plotter.save_fig(fig, self.figdir+filename)
 	
 	def plot_zone_temp_flow_vs_setpnt_asisst(self, xnum, xmin, xmax, xgran, ynum, ymin, ymax, ygran, dataDict):
@@ -526,6 +538,61 @@ class genie_plotter:
 			plotter.save_fig(figMonth, self.figdir+'therm_energy_diff_month.pdf')
 			plotter.save_fig(figZone, self.figdir+'therm_energy_diff_zone.pdf')
 	
+	def plot_setpnt_relative_energy_diff(self, genieFlag, timeDiff):
+		postfixTimeDiff = str(timeDiff.total_seconds()/3600)
+		titleZone1 = 'Changes in Total Energy Consumption vs Zone in Weekdays due to '
+		titleZone2 = ''
+		if genieFlag:
+			db = self.genieprocdb
+			titleZone = titleZone1 + "Genie Users\' Setpnt Change: " + titleZone2
+			rawSetpntZone = db.load('setpoint_per_zone')
+		else:
+			db = self.thermprocdb
+			titleZone = titleZone1 + "Thermostats\' Setpnt Change: " + titleZone2
+			rawSetpntZone = db.load('wcad_per_zone')
+		titleZone = None
+		
+		energyDiffZone = db.load('setpnt_relative_energy_diff_zone_' + postfixTimeDiff)
+		stdEnergyDiffZone = db.load('setpnt_relative_energy_diff_std_zone_' + postfixTimeDiff)
+		setpntZone = list()
+		for zone in energyDiffZone.keys():
+			setpntZone.append(rawSetpntZone[zone])
+
+		ylabelEnergy = '$\Delta$ Energy Consumption (%)'
+		ylabelUtil = '# Setpoint \nChanges'
+		xlabelZone = 'Zone'
+		
+		clist = ['skyblue']
+		eclist= ['mediumaquamarine']
+		clist2 = ['darkolivegreen']
+		#clist = ['lightgray']
+		#eclist = ['darkgray']
+		
+		plotDataZone = list()
+#		ytickTag = ['0','150','300','450', '600']
+#		ytickRange = [0,150,300,450,600]
+		ytickTag = None
+		ytickRange=  None
+		plotDataZone.append(np.array(energyDiffZone.values()))
+		stdDataZone = list()
+		stdDataZone.append(np.array(stdEnergyDiffZone.values()))
+		plotDataUtilZone = [np.array(setpntZone)]
+		#figZone, (axEnergyZone, axUtilZone) = plt.subplots(2,1, sharex=True)
+		figZone = plt.figure(figsize=(4,3))
+		gs = gridspec.GridSpec(2,1,height_ratios=[2,1])
+		ax1 = plt.subplot(gs[0])
+		ax2 = plt.subplot(gs[1])
+		ylim = (-500,500)
+		plotter.plot_multiple_stacked_bars(plotDataZone, 0, ylabel=ylabelEnergy, title=titleZone, axis=ax1, fig=figZone, stdSeries=stdDataZone, clist=clist, eclist=eclist,ylim=ylim)
+		plotter.plot_multiple_stacked_bars(plotDataUtilZone, 0, xlabel=xlabelZone, ylabel=ylabelUtil, title=titleZone, axis=ax2, fig=figZone, clist=clist2, ytickTag=ytickTag, ytickRange=ytickRange, ylim=(0,600))
+		plt.subplots_adjust(hspace=0.1)
+		#plt.show()
+		
+		if genieFlag:
+			plotter.save_fig(figZone, self.figdir+'genie_setpnt_relative_energy_diff_zone.pdf')
+		else:
+			plotter.save_fig(figZone, self.figdir+'therm_setpnt_relative_energy_diff_zone.pdf')
+	
 	def plot_setpnt_energy_diff(self, genieFlag, timeDiff):
 		postfixTimeDiff = str(timeDiff.total_seconds()/3600)
 		titleMonth1 = 'Changes in Total Energy Consumption vs Month in Weekdays due to '
@@ -569,8 +636,11 @@ class genie_plotter:
 		xlabelZone = 'Zone'
 		xlabelHour= 'Hour'
 		
+		#clist = ['skyblue']
+		#eclist= ['royalblue']
 		clist = ['skyblue']
-		eclist= ['royalblue']
+		eclist = ['darkgray']
+		ylim=(-5,5)
 		
 
 		monthTag = plotter.make_month_tag(datetime(2013,10,1))
@@ -580,30 +650,30 @@ class genie_plotter:
 		stdDataMonth.append(np.array(stdEnergyDiffMonth.values())/3600)
 		plotDataUtilMonth = [np.array(setpntMonth.values())]
 		#figMonth, (axEnergyMonth, axUtilMonth) = plt.subplots(2,1, sharex=True)
-		figMonth = plt.figure(figsize=(4,3))
+		figMonth = plt.figure(figsize=(4,2))
 		gs = gridspec.GridSpec(2,1,height_ratios=[2,1])
 		ax1 = plt.subplot(gs[0])
 		ax2 = plt.subplot(gs[1])
-		plotter.plot_multiple_stacked_bars(plotDataMonth, 0, ylabel=ylabelEnergy, xtickTag=monthTag, title=titleMonth, axis=ax1, fig=figMonth,stdSeries=stdDataMonth, clist=clist, eclist=eclist)
+		plotter.plot_multiple_stacked_bars(plotDataMonth, 0, ylabel=ylabelEnergy, xtickTag=monthTag, title=titleMonth, axis=ax1, fig=figMonth,stdSeries=stdDataMonth, clist=clist, eclist=eclist, ylim=ylim)
 		plotter.plot_multiple_stacked_bars(plotDataUtilMonth, 0, xlabel=xlabelMonth, ylabel=ylabelUtil, xtickTag=monthTag, title=titleMonth, axis=ax2, fig=figMonth, clist=clist)
-		plt.subplots_adjust(hspace=0.2)
+		plt.subplots_adjust(hspace=0.1)
 		#plt.show()
 		
 		plotDataZone = list()
 		ytickTag = ['0','150','300','450', '600']
-		ytickRange = [0,150,300,450,600]
+		ytickRange = [0,150,300,450]
 		plotDataZone.append(np.array(energyDiffZone.values())/3600)
 		stdDataZone = list()
 		stdDataZone.append(np.array(stdEnergyDiffZone.values())/3600)
 		plotDataUtilZone = [np.array(setpntZone)]
 		#figZone, (axEnergyZone, axUtilZone) = plt.subplots(2,1, sharex=True)
-		figZone = plt.figure(figsize=(4,3))
-		gs = gridspec.GridSpec(2,1,height_ratios=[2,1])
+		figZone = plt.figure(figsize=(4,2))
+		gs = gridspec.GridSpec(2,1,height_ratios=[3,1])
 		ax1 = plt.subplot(gs[0])
 		ax2 = plt.subplot(gs[1])
-		plotter.plot_multiple_stacked_bars(plotDataZone, 0, ylabel=ylabelEnergy, title=titleZone, axis=ax1, fig=figZone, stdSeries=stdDataZone, clist=clist, eclist=eclist)
+		plotter.plot_multiple_stacked_bars(plotDataZone, 0, ylabel=ylabelEnergy, title=titleZone, axis=ax1, fig=figZone, stdSeries=stdDataZone, clist=clist, eclist=eclist, ylim=ylim,xtickTag=[])
 		plotter.plot_multiple_stacked_bars(plotDataUtilZone, 0, xlabel=xlabelZone, ylabel=ylabelUtil, title=titleZone, axis=ax2, fig=figZone, clist=clist, ytickTag=ytickTag, ytickRange=ytickRange, ylim=(0,600))
-		plt.subplots_adjust(hspace=0.2)
+		plt.subplots_adjust(hspace=0.1)
 		#plt.show()
 		
 		plotDataHour = [np.array(energyDiffHour.values())/3600]
@@ -617,7 +687,7 @@ class genie_plotter:
 		ax2 = plt.subplot(gs[1])
 		plotter.plot_multiple_stacked_bars(plotDataHour, 0, ylabel=ylabelEnergy, title=titleHour, axis=ax1, fig=figHour, stdSeries=stdDataHour, clist=clist, eclist=eclist)
 		plotter.plot_multiple_stacked_bars(plotDataUtilHour, 0, xlabel=xlabelHour, ylabel=ylabelUtil, title=titleHour, axis=ax2, fig=figHour, clist=clist)
-		plt.subplots_adjust(hspace=0.2)
+		plt.subplots_adjust(hspace=0.1)
 		#plt.show()
 		
 		if genieFlag:
@@ -681,7 +751,7 @@ class genie_plotter:
 				setpntTS[(tp.year-2013)*12+tp.month] += 1
 		return setpntTS, actuateTS
 
-	def plot_wcad_usage_zone_including_error(self):
+	def plot_wcad_usage_zone_including_error(self, fig=None, axis=None):
 		title = None
 		genieData = self.genieprocdb.load('setpoint_per_zone')
 		thermData = self.thermprocdb.load('wcad_per_zone_include_errors')
@@ -718,15 +788,21 @@ class genie_plotter:
 		legend2 = 'Thermostat without Genie'
 		legend3 = 'Genie'
 		xlabel = 'Zone'
-		ylabel = '# Changes'
+		ylabel = '# Setpoint Change'
 
-		fig, (axis1) = plt.subplots(1,1)
+		if axis==None:
+			fig, (axis) = plt.subplots(1,1)
+			figsize = (8,2)
+			fig.set_size_inches(figsize)
+	#		fig.subplots_adjust(hspace=0.3)
+		plt.show()
 		ylim = (0,550)
 		#clist = ['skyblue','peachpuff','yellowgreen']
-		clist = ['lightgray', 'silver', 'dimgray']
+		#clist = ['lightgray', 'silver', 'dimgray']
 		linewidth=0
-		hatch=['---','', '']
-		fig, bars = plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis1, fig=fig, dataLabels=[legend1,legend2, legend3], clist=clist, linewidth=linewidth, hatchSeries=hatch, oneBlockWidth=1.2)
+		clist = ['skyblue','darkorange','darkolivegreen']
+		hatch=['///','','']
+		fig, bars = plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis, fig=fig, dataLabels=[legend1,legend2, legend3], clist=clist, linewidth=linewidth, hatchSeries=hatch, oneBlockWidth=1.2)
 
 		errX = []
 		errY = []
@@ -744,27 +820,27 @@ class genie_plotter:
 				errX.append(idx)
 				errY.append(notGenieListTherm[idx])
 		#errY[5] = 395
-		scat = axis1.scatter(errX, errY, marker='x', c='r', zorder=3, label='Errorneous Thermostat')
-		axis1.text(7, 500, 'Zone 23:')
-		axis1.text(15, 470, '816')
-		#axis1.text(26, 500, '542')
-		axis1.legend(handles=bars+[scat], fontsize=8, loc='best', scatterpoints=1)
-#		axis1.text(26, 450, 'x', color='r')
-#		axis1.text(26, 450, 'Erroneous Zone')
-		#axis1.text(103, 350, '442')
-		#axis1.text(115, 350, '472')
+		scat = axis.scatter(errX, errY, marker='x', c='r', zorder=3, label='Erroneous\nThermostat')
+		axis.text(10, 500, 'Zone 23:', fontsize=6, color='darkblue')
+		axis.text(18, 450, '816', fontsize=6,color='darkblue')
+		axis.text(50, 450, 'Temperature setpoint changes', fontsize=8, color='black', bbox=dict(fill=False, color='black', pad=7))
+		#axis.text(26, 500, '542')
+		#axis.legend(handles=bars+[scat], fontsize=8, loc='best', scatterpoints=1)
+		l1 = axis.legend(handles=bars, fontsize=6, loc='best')
+		axis.legend(handles=[scat], fontsize=6, loc='upper right', scatterpoints=1)
+		plt.gca().add_artist(l1)
+#		axis.text(26, 450, 'x', color='r')
+#		axis.text(26, 450, 'Erroneous Zone')
+		#axis.text(103, 350, '442')
+		#axis.text(115, 350, '472')
 
 		#plotData = [sortedThermDict.values()]
 		#xtickLabel = [83,93,103,113,123,133,143,153]
 		#plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis2, fig=fig, dataLabels=[legend3], linewidth=linewidth, xtickTag=xtickLabel, xtickRotate=0, clist=clist)
-		figsize = (8,3)
-		fig.set_size_inches(figsize)
-		fig.subplots_adjust(hspace=0.3)
-		plt.show()
 
 		plotter.save_fig(fig, self.figdir+'usage_setpoint_zone.pdf')
 
-	def plot_an_activity_zone(self, dataType, sortIndicator):
+	def plot_an_activity_zone(self, dataType, sortIndicator, axis=None, fig=None, xlabelFlag=True):
 		title = 'Number of ' + dataType + ' vs zone'
 		title = None
 		genieData = self.genieprocdb.load(dataType+'_per_zone')
@@ -808,20 +884,28 @@ class genie_plotter:
 		legend1 = 'Thermostat with Genie'
 		legend2 = 'Thermostat without Genie'
 		legend3 = 'Genie'
-		xlabel = 'Zone'
+		if xlabelFlag:
+			xlabel = 'Zone'
+		else:
+			xlabel = None
 		if dataType == 'setpoint':
 			ylabel = '# Setpoint Changes'
 		elif dataType == 'actuate':
 			ylabel = '# Actuation'
 
-		fig, (axis1) = plt.subplots(1,1)
+		if axis==None:
+			fig, (axis) = plt.subplots(1,1)
+			figsize = (8,2)
+			fig.set_size_inches(figsize)
+	#		fig.subplots_adjust(hspace=0.3)
 		ylim = (0,700)
-		#clist = ['skyblue','peachpuff','yellowgreen']
-		clist = ['lightgray', 'darkgray', 'dimgray']
+		clist = ['skyblue','darkorange','darkolivegreen']
+		hatch=['///','','']
+		#clist = ['lightgray', 'darkgray', 'dimgray']
 		linewidth=0
-		#hatch=['//','--', '\\\\']
-		hatch=['--','','']
-		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis1, fig=fig, dataLabels=[legend1,legend2, legend3], clist=clist, linewidth=linewidth, hatchSeries=hatch, oneBlockWidth=1.3)
+#		hatch=['//','--', '\\\\']
+		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis, fig=fig, dataLabels=[legend1,legend2, legend3], clist=clist, linewidth=linewidth, hatchSeries=hatch, oneBlockWidth=1.3)
+		axis.text(40, 550, 'HVAC turn on (Actuation) during nights/weekends', fontsize=8, color='black', bbox=dict(fill=False, color='black', pad=7))
 		
 #		axir1.text(5, 350, '665')
 #		axis1.text(15, 465, '678')
@@ -832,9 +916,6 @@ class genie_plotter:
 		#plotData = [sortedThermDict.values()]
 		#xtickLabel = [83,93,103,113,123,133,143,153]
 		#plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, ylim=ylim, axis=axis2, fig=fig, dataLabels=[legend3], linewidth=linewidth, xtickTag=xtickLabel, xtickRotate=0, clist=clist)
-		figsize = (8,3)
-		fig.set_size_inches(figsize)
-		fig.subplots_adjust(hspace=0.3)
 		plt.show()
 
 		plotter.save_fig(fig, self.figdir+dataType+'_zone_'+sortIndicator+'.pdf')
@@ -884,9 +965,11 @@ class genie_plotter:
 		xlabel = 'Zone'
 		ylabel = 'Number of Activities'
 		fig, axis = plt.subplots(1,1)
-		clist = ['c','m']
+		#clist = ['c','m']
+		clist = ['lightgray', 'darkgray']
+		hatch = ['//','']
 		dataLabels = ['Setpoint Change', 'Actuation']
-		plotter.plot_multiple_stacked_bars(plotData, 1, xlabel=xlabel, ylabel=ylabel, axis=axis, fig=fig, clist=clist, title=title,dataLabels=dataLabels)
+		plotter.plot_multiple_stacked_bars(plotData, 1, xlabel=xlabel, ylabel=ylabel, axis=axis, fig=fig, clist=clist, title=title,dataLabels=dataLabels, hatchSeries=hatch)
 		
 		if genieFlag:
 			plotter.save_fig(fig, self.figdir+'zones/genie_'+'utilization_zone.pdf')
@@ -958,7 +1041,7 @@ class genie_plotter:
 		#figsize = self.figsize
 		figsize = (4,3)
 		legends = ['Genie', 'Thermostat with Genie', 'Thermostat without Genie']
-		hatch = ['..', '', '']
+		hatch = ['//', '', '']
 		plotter.plot_multiple_stacked_bars(plotData, 0, xlabel=xlabel, ylabel=ylabel, xtickRange=None, xtickTag=xtickLabel, ytickRange=None, ytickTag=None, title=title, stdSeries=None, axis=axis, fig=fig, clist=clist, dataLabels=legends,ylim=ylim, hatchSeries=hatch)
 		fig.set_size_inches(figsize)
 
@@ -1052,19 +1135,28 @@ class genie_plotter:
 		dayTitle = None
 		endTitle = None
 
-		clist = ['skyblue','peachpuff']
 		xlabel = 'Time (Month/Year)''Month'
-		ylabel = 'Energy during \nWeekdays (kWh)'
+		dayylabel = 'Normalized Energy\n($kWh$/$ft^2$)'
+		endylabel = 'Normalized Energy\n($kWh$/$ft^2$)'
 		xtickLabel= plotter.make_month_tag(datetime(2013,10,1))
-		fig, (endAxis, dayAxis) = plt.subplots(2,1)
+		fig, (dayAxis, endAxis) = plt.subplots(2,1)
 		legends = ['Genie', 'Thermostat']
 		ylim = (0,3)
-		hatch = ['//','\\\\']
-		plotter.plot_multiple_stacked_bars(dayAvgData, 0, xlabel=None, ylabel=ylabel, xtickTag=[], title=dayTitle, axis=endAxis, clist=clist, dataLabels=legends, stdSeries=dayStdData, ylim=ylim, hatchSeries=hatch)
-		plotter.plot_multiple_stacked_bars(endAvgData, 0, xlabel=xlabel, ylabel=ylabel, xtickTag=xtickLabel, title=endTitle, axis=dayAxis, clist=clist, dataLabels=legends, stdSeries=endStdData, ylim=ylim, hatchSeries=hatch)
+		#hatch = ['//','\\\\']
+		#clist = ['skyblue','peachpuff']
+		clist = ['skyblue', 'darkolivegreen']
+		eclist = ['mediumaquamarine', 'darkseagreen']
+		linewidth=0
+		#hatch=['//','--', '\\\\']
+		#hatch=['//','','']
+		hatch = None
+		plotter.plot_multiple_stacked_bars(dayAvgData, 0, xlabel=None, ylabel=dayylabel, xtickTag=[], title=dayTitle, axis=dayAxis, clist=clist, dataLabels=legends, stdSeries=dayStdData, ylim=ylim, hatchSeries=hatch, eclist=eclist)
+		plotter.plot_multiple_stacked_bars(endAvgData, 0, xlabel=xlabel, ylabel=endylabel, xtickTag=xtickLabel, title=endTitle, axis=endAxis, clist=clist, dataLabels=legends, stdSeries=endStdData, ylim=ylim, hatchSeries=hatch, eclist=eclist)
+		dayAxis.text(7.5, 2.4, 'Weekdays', fontsize=7, color='black', bbox=dict(fill=False, color='black', pad=7))
+		endAxis.text(6.5, 2.4, 'Nights/Weekends', fontsize=7, color='black', bbox=dict(fill=False, color='black', pad=7))
 		figsize = (4,3)
 		fig.set_size_inches(figsize)
-		fig.subplots_adjust(hspace=0.2)
+		fig.subplots_adjust(hspace=0.1)
 
 		plotter.save_fig(fig, self.figdir+'weekday_weekend_energy.pdf')
 
@@ -1118,22 +1210,30 @@ class genie_plotter:
 		plotter.save_fig(fig, self.figdir+'therm_usages/'+zone+'.pdf')
 	
 	def plot_abnormal_wcad(self):
-		xlabel = 'Time (h:m)'
-		ylabel = u'Setpoint Deviation ($^\circ$F)'
+		xlabel = 'Time (hh:mm)'
+		ylabel = u'$\Delta$ Temperature \nSetpoint ($^\circ$F)'
 		dateFormat = DateFormatter('%H:%M')
+
+		fig, axis = plt.subplots(1,1)
 
 		xs = list()
 		ys = list()
 		g = lambda tp:tp.replace(tzinfo=None)
-		wcad = self.bdm.download_dataframe("Warm Cool Adjust", 'PresentValue', '4252', datetime(2015,3,8,0,0), datetime(2015,3,9,0,0))
-		wcad['timestamp'] = wcad['timestamp'].apply(g)
-		xs.append(wcad['timestamp'])
-		ys.append(wcad['value'])
+		#wcad = self.bdm.download_dataframe("Warm Cool Adjust", 'PresentValue', '4252', datetime(2015,3,8,0,0), datetime(2015,3,9,0,0))
+		#wcad['timestamp'] = wcad['timestamp'].apply(g)
+		#xs.append(wcad['timestamp'])
+		#ys.append(wcad['value'])
 		wcad = self.bdm.download_dataframe("Warm Cool Adjust", 'PresentValue', '3220', datetime(2014,12,28,0,0), datetime(2014,12,28,6,0))
 		wcad['timestamp'] = wcad['timestamp'].apply(g)
-		xs.append(wcad['timestamp'])
-		ys.append(wcad['value'])
-		fig, _ = plotter.plot_multiple_timeseries(xs,ys,xlabel,ylabel, dateFormat=dateFormat, color='black')
+		#xs.append(wcad['timestamp'])
+		#ys.append(wcad['value'])
+		x = wcad['timestamp']
+		y = wcad['value']
+#		fig, _ = plotter.plot_multiple_timeseries(xs,ys,xlabel,ylabel, dateFormat=dateFormat, color='black')
+		ytickRange = [6,7,8,9,10]
+		ytickTag = ['6','7','8','9','10']
+		fig, axis = plotter.plot_timeseries(x,y,xlabel,ylabel, dateFormat=dateFormat, color='black', yticks=ytickRange, ytickTags=ytickTag)
+		fig.set_size_inches(5,1.2)
 		
 		plotter.save_fig(fig, self.figdir+'wcad_error_zones.pdf')
 
@@ -1144,11 +1244,31 @@ class genie_plotter:
 		for zone in self.zonelist:
 			self.plot_one_therm_usage_month(zone, actuDict, setpntDict)
 	
+	def plot_all_temperature_week(self):
+		avgDict = self.thermprocdb.load('zone_temperature_week_avg')
+		stdDict = self.thermprocdb.load('zone_temperature_week_std')
+		sortedAvgDict = OrderedDict(sorted(avgDict.items(), key=operator.itemgetter(1)))
+		sortedStdDict = OrderedDict()
+		for zone in sortedAvgDict.keys():
+			sortedStdDict[zone] = stdDict[zone]
+		fig, axis = plt.subplots(1,1)
+		title = "4/13/2015 ~ 4/17/2015 7AM to 6PM"
+		plotter.errorbar(range(0,len(sortedAvgDict)-1), sortedAvgDict.values()[1:], yerr=sortedStdDict.values()[1:], title=title, axis=axis, fig=fig)
+		plotter.save_fig(fig, self.figdir+'temperature_zone.pdf')
+
+		
+	
 	def publish(self):
 		GenieFlag = True
 		ThermFlag = False
-		self.plot_an_activity_zone('actuate', 'fixed')
-		self.plot_wcad_usage_zone_including_error()
+		self.plot_energy()
+		fig,[axis1,axis2] = plt.subplots(2,1)
+		figsize = (8.5,3)
+		fig.set_size_inches(figsize)
+		fig.subplots_adjust(hspace=0.1)
+		self.plot_an_activity_zone('actuate', 'fixed', fig=fig, axis=axis1, xlabelFlag=False)
+		axis1.get_xaxis().set_ticks([])
+		self.plot_wcad_usage_zone_including_error(fig=fig, axis=axis2)
 		self.plot_abnormal_wcad()
 		self.plot_an_activity_month('setpoint')
 		self.plot_an_activity_month('actuate')
@@ -1159,7 +1279,8 @@ class genie_plotter:
 		self.plot_setpnt_dev_vs_usability(ThermFlag, 'hour')
 		self.plot_setpnt_energy_diff(GenieFlag, timedelta(hours=2))
 		self.plot_setpnt_energy_diff(ThermFlag, timedelta(hours=2))
-		self.plot_energy()
+		self.plot_setpnt_relative_energy_diff(GenieFlag, timedelta(hours=2))
+		self.plot_setpnt_relative_energy_diff(ThermFlag, timedelta(hours=2))
 	
 	def test(self):
 		GenieFlag = True
